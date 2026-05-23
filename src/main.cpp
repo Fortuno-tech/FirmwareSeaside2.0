@@ -10,8 +10,8 @@
 
 // Pins des afficheurs 7 segments (Common Anode)
 #define D1 4   // Milliers (gauche)
-#define D3 15  // Centaines
-#define D2 2   // Dizaines
+#define D2 15  // Dizaines
+#define D3 2   // Centaines
 #define D4 13  // Unités (droite)
 
 // Boutons
@@ -86,7 +86,6 @@ float lireDistance() {
   return distance;
 }
 
-// === FONCTION CORRIGÉE - Ordre adapté au chaînage sr1→sr3→sr2→sr4 ===
 void afficherNombre(int nombre) {
   if (!displayEnabled) {
     digitalWrite(D1, LOW);
@@ -96,44 +95,44 @@ void afficherNombre(int nombre) {
     return;
   }
 
-  int digits[4];
-  digits[0] = (nombre / 1000) % 10;  // D1 - Milliers
-  digits[1] = (nombre / 100)  % 10;  // D3 - Centaines
-  digits[2] = (nombre / 10)   % 10;  // D2 - Dizaines
-  digits[3] = nombre % 10;           // D4 - Unités
+  // Extraire chaque chiffre selon l'ordre physique d'affichage
+  // Ordre physique de gauche à droite : D1 (Milliers) → D3 (Centaines) → D2 (Dizaines) → D4 (Unités)
+  int milliers = (nombre / 1000) % 10;   // D1
+  int centaines = (nombre / 100) % 10;   // D3
+  int dizaines = (nombre / 10) % 10;     // D2
+  int unites = nombre % 10;              // D4
 
   digitalWrite(LATCH_PIN, LOW);
 
-  // On envoie dans l'ordre inverse du chaînage (dernier registre d'abord)
-  // Ordre d'envoi : sr4 (D4), sr2 (D2), sr3 (D3), sr1 (D1)
+  // Ordre d'envoi (inverse du chaînage physique)
+  // Chaînage : sr1 → sr3 → sr2 → sr4
+  // Donc envoi : sr4, sr2, sr3, sr1
+  
+  // 1. Dernier registre → sr4 (Unités - D4)
+  shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, seg[unites]);
+  digitalWrite(D4, HIGH);
 
-  // Digit 4 (Unités) - sr4
-  if (true) {  // toujours affiché
-    shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, seg[digits[3]]);
-    digitalWrite(D4, HIGH);
-  }
-
-  // Digit 3 (Centaines) - sr3   ← important : pas dans l'ordre numérique
-  if (nombre >= 100) {
-    shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, seg[digits[1]]);
-    digitalWrite(D3, HIGH);
-  } else {
-    shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 0b11111111);
-    digitalWrite(D3, LOW);
-  }
-
-  // Digit 2 (Dizaines) - sr2
+  // 2. Avant-dernier → sr2 (Dizaines - D2)
   if (nombre >= 10) {
-    shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, seg[digits[2]]);
+    shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, seg[dizaines]);
     digitalWrite(D2, HIGH);
   } else {
     shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 0b11111111);
     digitalWrite(D2, LOW);
   }
 
-  // Digit 1 (Milliers) - sr1
+  // 3. Deuxième → sr3 (Centaines - D3)
+  if (nombre >= 100) {
+    shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, seg[centaines]);
+    digitalWrite(D3, HIGH);
+  } else {
+    shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 0b11111111);
+    digitalWrite(D3, LOW);
+  }
+
+  // 4. Premier registre → sr1 (Milliers - D1)
   if (nombre >= 1000) {
-    shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, seg[digits[0]]);
+    shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, seg[milliers]);
     digitalWrite(D1, HIGH);
   } else {
     shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, 0b11111111);
@@ -146,10 +145,6 @@ void afficherNombre(int nombre) {
 void loop() {
   unsigned long currentTime = millis();
   float distance = lireDistance();
-
-  // Serial.print("Distance : ");
-  // Serial.print(distance);
-  // Serial.println(" cm");
 
   // Détection ultrason
   if (distance > 0 && distance < SEUIL) {
@@ -195,7 +190,7 @@ void loop() {
   }
   ancienEtatMinus = etatMinus;
 
-  // Veille
+  // Gestion de la veille
   if (currentTime - lastActivityTime >= INACTIVITY_TIMEOUT) {
     displayEnabled = false;
   } else {
