@@ -1,27 +1,23 @@
 #include <Arduino.h>
-#ifdef ESP32
-  #include <WiFi.h>
-#else
-  #include <ESP8266Wifi.h>
-#endif
+#include <LittleFS.h>
+#include "config.h"
+#include "wifi_ap.h"
+#include "webserver.h"
 
-const char* AP_SSID ="SmartCount";
-const char* AP_PASSWORD= "Fortico1234";
-void setup(){
+void setup() {
   Serial.begin(115200);
   delay(1000);
+  Serial.println("=== Seaside 2.0 - Boot ===");
 
-  WiFi.mode(WIFI_AP);
-  bool ok = WiFi.softAP(AP_SSID, AP_PASSWORD);
-
-  if (ok){
-    Serial.println("AP démarré");
-    Serial.print("IP: ");
-    Serial.println(WiFi.softAPIP());
-  } else{
-    Serial.println("Echec");
+  if (!LittleFS.begin()) {
+    Serial.println("Erreur LittleFS !");
+  } else {
+    Serial.println("LittleFS OK");
   }
+
+  setupAP();
+  setupServer();
 }
-void loop(){
-  
+
+void loop() {
 }

@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Seaside 2.0 - Test</title>
+  <style>
+    body { font-family: Arial; text-align: center; padding: 20px; background: #1a1a2e; color: white; }
+    h1 { color: #00d4ff; }
+    .card { background: #16213e; padding: 20px; border-radius: 10px; margin: 10px auto; max-width: 400px; }
+    input { padding: 8px; width: 100%; margin: 5px 0; border-radius: 5px; border: none; }
+    button { background: #00d4ff; color: #000; padding: 10px 20px; border: none; border-radius: 5px; cursor: pointer; margin-top: 10px; }
+  </style>
+</head>
+<body>
+  <h1>Seaside 2.0</h1>
+
+  <!-- Comptage -->
+  <div class="card">
+    <h2>Comptage</h2>
+    <p>Total : <span id="total">--</span></p>
+    <p>Actuel : <span id="current">--</span></p>
+    <button onclick="getCount()">Actualiser</button>
+  </div>
+
+  <!-- Config AP -->
+  <div class="card">
+    <h2>Configuration WiFi AP</h2>
+    <input type="text" id="ssid" placeholder="Nouveau SSID" />
+    <input type="password" id="password" placeholder="Nouveau MDP (min 8 car.)" />
+    <button onclick="saveConfig()">Sauvegarder</button>
+    <p id="msg"></p>
+  </div>
+
+  <script>
+    // Récupérer comptage
+    function getCount() {
+      fetch("/api/count")
+        .then(r => r.json())
+        .then(data => {
+          document.getElementById("total").innerText   = data.total;
+          document.getElementById("current").innerText = data.current;
+        });
+    }
+
+    // Modifier config AP
+    function saveConfig() {
+      const ssid     = document.getElementById("ssid").value;
+      const password = document.getElementById("password").value;
+
+      fetch("/api/config", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ ssid, password })
+      })
+      .then(r => r.json())
+      .then(data => {
+        if (data.status === "ok") {
+          document.getElementById("msg").innerText = "✅ Config sauvegardée !";
+        } else {
+          document.getElementById("msg").innerText = "❌ " + data.error;
+        }
+      });
+    }
+
+    // Actualiser automatiquement toutes les 3 secondes
+    setInterval(getCount, 3000);
+    getCount();
+  </script>
+</body>
+</html>
