@@ -1,5 +1,9 @@
 #include <Arduino.h>
-#include <WiFi.h>
+#ifdef ESP32
+  #include <WiFi.h>
+#else
+  #include <ESP8266Wifi.h>
+#endif
 
 const char* AP_SSID ="SmartCount";
 const char* AP_PASSWORD= "Fortico1234";
