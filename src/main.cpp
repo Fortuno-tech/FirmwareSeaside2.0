@@ -13,6 +13,7 @@
 #include "config.h"
 #include "wifi_ap.h"
 #include "webserver.h"
+#include "ota.h"
 
 #ifdef ESP32
   #include "espnow.h"
@@ -41,6 +42,9 @@ void setup() {
   // Serveur HTTP
   setupServer();
 
+  //OTA 
+  setupOTA();
+
   // Communication
   #ifdef ESP32
     if (String(ROLE) == "master") {
@@ -61,6 +65,7 @@ void setup() {
 }
 
 void loop() {
+  handleOTA();
   #ifndef ESP32
     // ESP8266 Master écoute UDP en permanence
     if (String(ROLE) == "master") {
