@@ -1,11 +1,13 @@
 // ================= SIDEBAR =================
+
 function toggleSidebar() {
   document.getElementById("sidebar").classList.toggle("active");
 }
 
-// fermer sidebar quand on clique dehors
+// fermer sidebar mobile
 document.addEventListener("click", function (e) {
   let sidebar = document.getElementById("sidebar");
+
   let burger = document.querySelector(".burger");
 
   if (window.innerWidth <= 768) {
@@ -16,6 +18,7 @@ document.addEventListener("click", function (e) {
 });
 
 // ================= NAVIGATION =================
+
 function showPage(page, element) {
   // pages
   document
@@ -31,7 +34,7 @@ function showPage(page, element) {
 
   element.classList.add("active");
 
-  // changer titre
+  // title
   let title = document.getElementById("pageTitle");
 
   if (page === "dashboard") {
@@ -50,13 +53,51 @@ function showPage(page, element) {
     title.innerText = "Paramètre";
   }
 
-  // fermer sidebar mobile
+  // mobile
   if (window.innerWidth <= 768) {
     document.getElementById("sidebar").classList.remove("active");
   }
 }
 
+// ================= PASSWORD MODAL =================
+
+let currentParamElement = null;
+
+function openPasswordModal(element) {
+  currentParamElement = element;
+
+  document.getElementById("passwordModal").classList.add("active");
+
+  document.getElementById("adminPassword").value = "";
+
+  document.getElementById("passwordError").innerText = "";
+}
+
+function confirmPassword() {
+  let password = document.getElementById("adminPassword").value;
+
+  if (password === "1112") {
+    document.getElementById("passwordModal").classList.remove("active");
+
+    showPage("parametre", currentParamElement);
+
+    return;
+  }
+
+  document.getElementById("passwordError").innerText = "Mot de passe incorrect";
+}
+
+// fermer modal dehors
+document
+  .getElementById("passwordModal")
+  .addEventListener("click", function (e) {
+    if (e.target.id === "passwordModal") {
+      this.classList.remove("active");
+    }
+  });
+
 // ================= RESEAUX =================
+
 function changeNetworkMode() {
   let mode = document.getElementById("modeNet").value;
 
@@ -66,106 +107,115 @@ function changeNetworkMode() {
   if (mode === "ap") {
     area.innerHTML = `
 
-                    <div>
+      <div>
 
-                        <h3 style="margin:25px 0 20px 0;">
-                            <i class="bi bi-router"></i>
-                            Gestion Point d'accès
-                        </h3>
+        <h3 style="margin:25px 0 20px 0;">
+          <i class="bi bi-router"></i>
+          Gestion Point d'accès
+        </h3>
 
-                        <div class="input-group">
+        <div class="input-group">
 
-                            <label>
-                                <i class="bi bi-wifi"></i>
-                                Nom Point d'accès
-                            </label>
+          <label>
+            <i class="bi bi-wifi"></i>
+            Nom Point d'accès
+          </label>
 
-                            <input type="text"
-                                placeholder="ESP32-NETWORK"
-                                minlength="4"
-                                maxlength="20"
-                                required>
+          <input
+            type="text"
+            placeholder="ESP32-NETWORK"
+            minlength="4"
+            maxlength="20"
+            required
+          >
 
-                        </div>
+        </div>
 
-                        <div class="input-group">
+        <div class="input-group">
 
-                            <label>
-                                <i class="bi bi-lock-fill"></i>
-                                Mot de passe
-                            </label>
+          <label>
+            <i class="bi bi-lock-fill"></i>
+            Mot de passe
+          </label>
 
-                            <input type="password"
-                                placeholder="********"
-                                minlength="8"
-                                maxlength="20"
-                                required>
+          <input
+            type="password"
+            placeholder="********"
+            minlength="8"
+            maxlength="20"
+            required
+          >
 
-                        </div>
+        </div>
 
-                        <button class="btn" type="submit">
-                            <i class="bi bi-check-circle"></i>
-                            Confirmer
-                        </button>
+        <button class="btn" type="submit">
+          <i class="bi bi-check-circle"></i>
+          Confirmer
+        </button>
 
-                    </div>
+      </div>
 
-                `;
+    `;
   }
 
   // ONLINE
   if (mode === "online") {
     area.innerHTML = `
 
-                    <div>
+      <div>
 
-                        <h3 style="margin:25px 0 20px 0;">
-                            <i class="bi bi-globe"></i>
-                            Mode En Ligne
-                        </h3>
+        <h3 style="margin:25px 0 20px 0;">
+          <i class="bi bi-globe"></i>
+          Mode En Ligne
+        </h3>
 
-                        <div class="input-group">
+        <div class="input-group">
 
-                            <label>
-                                <i class="bi bi-router"></i>
-                                SSID WiFi
-                            </label>
+          <label>
+            <i class="bi bi-router"></i>
+            SSID WiFi
+          </label>
 
-                            <input type="text"
-                                placeholder="Nom WiFi"
-                                minlength="4"
-                                maxlength="20"
-                                required>
+          <input
+            type="text"
+            placeholder="Nom WiFi"
+            minlength="4"
+            maxlength="20"
+            required
+          >
 
-                        </div>
+        </div>
 
-                        <div class="input-group">
+        <div class="input-group">
 
-                            <label>
-                                <i class="bi bi-lock-fill"></i>
-                                Mot de passe
-                            </label>
+          <label>
+            <i class="bi bi-lock-fill"></i>
+            Mot de passe
+          </label>
 
-                            <input type="password"
-                                placeholder="********"
-                                minlength="8"
-                                maxlength="20"
-                                required>
+          <input
+            type="password"
+            placeholder="********"
+            minlength="8"
+            maxlength="20"
+            required
+          >
 
-                        </div>
+        </div>
 
-                        <button class="btn" type="submit">
-                            <i class="bi bi-check-circle"></i>
-                            Confirmer
-                        </button>
+        <button class="btn" type="submit">
+          <i class="bi bi-check-circle"></i>
+          Confirmer
+        </button>
 
-                    </div>
+      </div>
 
-                `;
+    `;
   }
 }
 
 // ================= MAC VALIDATION =================
+
 function isValidMAC(mac) {
   let regex = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
 
@@ -173,13 +223,14 @@ function isValidMAC(mac) {
 }
 
 // ================= MODULE =================
+
 document.getElementById("moduleForm").addEventListener("submit", function (e) {
   e.preventDefault();
 
   let mac1 = document.getElementById("mac1").value.trim();
+
   let mac2 = document.getElementById("mac2").value.trim();
 
-  // validation
   if (!isValidMAC(mac1)) {
     alert("Adresse MAC invalide");
     return;
@@ -198,34 +249,35 @@ document.getElementById("moduleForm").addEventListener("submit", function (e) {
 
   card.innerHTML = `
 
-                    <h4>
-                        <i class="bi bi-hdd-network"></i>
-                        Module ${type}
-                    </h4>
+      <h4>
+        <i class="bi bi-hdd-network"></i>
+        Module ${type}
+      </h4>
 
-                    <p>
-                        <i class="bi bi-activity"></i>
-                        Passage : 50
-                    </p>
+      <p>
+        <i class="bi bi-activity"></i>
+        Passage : 50
+      </p>
 
-                    <p>
-                        <i class="bi bi-wifi"></i>
-                        Mode : En ligne
-                    </p>
+      <p>
+        <i class="bi bi-wifi"></i>
+        Mode : En ligne
+      </p>
 
-                    <p>
-                        <i class="bi bi-battery-full"></i>
-                        Batterie : 100%
-                    </p>
+      <p>
+        <i class="bi bi-battery-full"></i>
+        Batterie : 100%
+      </p>
 
-                `;
+    `;
 
   document.getElementById("moduleList").appendChild(card);
 
   this.reset();
 });
 
-// ================= COMPTEUR PASSAGE =================
+// ================= PASSAGE =================
+
 let passage = 50;
 
 function incrementPassage() {
@@ -243,54 +295,225 @@ function decrementPassage() {
 }
 
 // ================= RESEAUX SUBMIT =================
-function submit_reseau() {
-  event.preventDefault(); // empêche refresh
+
+function submit_reseau(event) {
+  event.preventDefault();
 
   let mode = document.getElementById("modeNet").value;
+
   let area = document.getElementById("networkArea");
 
   let inputs = area.querySelectorAll("input");
 
-  // sécurisation
   if (inputs.length < 2) {
     alert("Formulaire incomplet");
     return;
   }
 
   let ssid = inputs[0].value.trim();
+
   let password = inputs[1].value.trim();
 
-  // ================= VALIDATION =================
   if (ssid.length < 4 || ssid.length > 20) {
-    alert("SSID / Nom réseau invalide (4 à 20 caractères)");
+    alert("SSID invalide");
     return;
   }
 
   if (password.length < 8 || password.length > 20) {
-    alert("Mot de passe invalide (8 à 20 caractères)");
+    alert("Mot de passe invalide");
     return;
   }
 
-  // ================= RESULTAT =================
   if (mode === "ap") {
-    console.log("MODE POINT D'ACCÈS");
-    console.log("SSID :", ssid);
-    console.log("PASSWORD :", password);
-
     alert("Configuration Point d'accès enregistrée !");
   }
 
   if (mode === "online") {
-    console.log("MODE EN LIGNE");
-    console.log("SSID WiFi :", ssid);
-    console.log("PASSWORD :", password);
-
     alert("Configuration WiFi enregistrée !");
   }
 
-  // reset visuel
-  area.querySelectorAll("input").forEach((input) => (input.value = ""));
+  inputs.forEach((input) => {
+    input.value = "";
+  });
 }
 
-// ================= DEFAULT =================
+// ================= FIRMWARE =================
+
+function changeFirmwareMode() {
+  let mode = document.getElementById("firmwareMode").value;
+
+  let area = document.getElementById("firmwareArea");
+
+  // ================= HORS LIGNE =================
+  if (mode === "offline") {
+    area.innerHTML = `
+
+      <div>
+
+        <h3 style="margin:25px 0 20px 0;">
+          <i class="bi bi-usb-drive"></i>
+          Mise à jour Hors Ligne
+        </h3>
+
+        <div class="input-group">
+
+          <label>
+            <i class="bi bi-file-earmark-arrow-up"></i>
+            Sélectionner Firmware
+          </label>
+
+          <input
+            type="file"
+            id="firmwareFile"
+            accept=".bin"
+            required
+          >
+
+        </div>
+
+        <button
+          class="btn"
+          type="button"
+          onclick="uploadOfflineFirmware()"
+        >
+          <i class="bi bi-upload"></i>
+          Téléverser Firmware
+        </button>
+
+      </div>
+
+    `;
+  }
+
+  // ================= EN LIGNE =================
+  if (mode === "online") {
+    area.innerHTML = `
+
+      <div>
+
+        <h3 style="margin:25px 0 20px 0;">
+          <i class="bi bi-cloud-arrow-down"></i>
+          Mise à jour En Ligne
+        </h3>
+
+        <div class="input-group">
+
+          <label>
+            <i class="bi bi-hdd-network"></i>
+            Choisir le module
+          </label>
+
+          <select id="onlineModule">
+
+            <option>Module Master</option>
+
+            <option>Module Slave 1</option>
+
+            <option>Module Slave 2</option>
+
+            <option>Module Slave 3</option>
+
+          </select>
+
+        </div>
+
+        <div class="input-group">
+
+          <label>
+            <i class="bi bi-link-45deg"></i>
+            URL Firmware
+          </label>
+
+          <input
+            type="url"
+            id="firmwareUrl"
+            placeholder="https://example.com/firmware.bin"
+            required
+          >
+
+        </div>
+
+        <button
+          class="btn"
+          type="button"
+          onclick="uploadOnlineFirmware()"
+        >
+          <i class="bi bi-cloud-upload"></i>
+          Télécharger et Téléverser
+        </button>
+
+      </div>
+
+    `;
+  }
+}
+
+// ================= UPLOAD OFFLINE =================
+
+function uploadOfflineFirmware() {
+  let file = document.getElementById("firmwareFile").files[0];
+
+  if (!file) {
+    alert("Veuillez sélectionner un firmware");
+    return;
+  }
+
+  // vérification extension
+  if (!file.name.endsWith(".bin")) {
+    alert("Le fichier doit être en .bin");
+    return;
+  }
+
+  console.log("Firmware sélectionné :", file.name);
+
+  alert("Firmware téléversé avec succès en mode hors ligne !");
+}
+
+// ================= UPLOAD ONLINE =================
+
+function uploadOnlineFirmware() {
+  let module = document.getElementById("onlineModule").value;
+
+  let url = document.getElementById("firmwareUrl").value.trim();
+
+  if (url === "") {
+    alert("Veuillez saisir une URL firmware");
+    return;
+  }
+
+  // simple validation
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    alert("URL invalide");
+    return;
+  }
+
+  console.log("Module :", module);
+
+  console.log("Firmware URL :", url);
+
+  alert("Téléchargement et téléversement du firmware lancé !");
+}
+
+// ================= DEFAULT FIRMWARE =================
+
+changeFirmwareMode();
+// ================= PARAMETRE SUB MENU =================
+
+function showSettingPage(pageId, element) {
+  // cacher pages
+  document.querySelectorAll(".setting-page").forEach((page) => {
+    page.classList.remove("active");
+  });
+
+  // afficher page
+  document.getElementById(pageId).classList.add("active");
+
+  // bouton active
+  document.querySelectorAll(".settings-btn").forEach((btn) => {
+    btn.classList.remove("active");
+  });
+
+  element.classList.add("active");
+}
+
 changeNetworkMode();

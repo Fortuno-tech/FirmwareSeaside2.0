@@ -1,8 +1,12 @@
+@font-face {
+  font-family: pop;
+  src: url(font/Manrope-VariableFont_wght.ttf);
+}
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
-  font-family: "Poppins", sans-serif;
+  font-family: pop;
 }
 
 body {
@@ -13,6 +17,7 @@ body {
 }
 
 /* ================= SIDEBAR ================= */
+
 .sidebar {
   width: 250px;
   background: #111827;
@@ -62,6 +67,7 @@ body {
 }
 
 /* ================= MAIN ================= */
+
 .main {
   margin-left: 250px;
   width: calc(100% - 250px);
@@ -82,6 +88,7 @@ body {
 }
 
 /* ================= BURGER ================= */
+
 .burger {
   display: none;
   font-size: 28px;
@@ -93,6 +100,7 @@ body {
 }
 
 /* ================= PAGE ================= */
+
 .page {
   display: none;
 }
@@ -102,6 +110,7 @@ body {
 }
 
 /* ================= DASHBOARD ================= */
+
 .cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
@@ -124,7 +133,6 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  margin-bottom: 20px;
 }
 
 .card-icon {
@@ -159,7 +167,13 @@ body {
   margin-top: 5px;
 }
 
-/* ================= COMPTEUR BUTTONS ================= */
+/* ================= COUNTER ================= */
+
+.counter-actions {
+  margin-top: 15px;
+  display: flex;
+  gap: 10px;
+}
 
 .counter-btn {
   flex: 1;
@@ -167,39 +181,25 @@ body {
   padding: 10px;
   border-radius: 12px;
   cursor: pointer;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-
+  color: white;
   font-size: 16px;
-  transition: all 0.25s ease;
-  box-shadow: 0 4px 10px rgba(0, 0, 0, 0.08);
+  transition: 0.3s;
 }
 
-/* bouton + */
-.counter-btn.increment {
+.increment {
   background: linear-gradient(135deg, #22c55e, #16a34a);
-  color: white;
 }
 
-/* bouton - */
-.counter-btn.decrement {
+.decrement {
   background: linear-gradient(135deg, #ef4444, #dc2626);
-  color: white;
 }
 
-/* hover effet */
 .counter-btn:hover {
   transform: translateY(-2px);
-  box-shadow: 0 6px 15px rgba(0, 0, 0, 0.15);
-}
-
-/* clic effet */
-.counter-btn:active {
-  transform: scale(0.95);
 }
 
 /* ================= FORM ================= */
+
 .form-box {
   background: white;
   padding: 25px;
@@ -223,10 +223,6 @@ body {
   margin-bottom: 8px;
 }
 
-.input-group label i {
-  margin-right: 6px;
-}
-
 .input-group input,
 .input-group select {
   width: 100%;
@@ -234,7 +230,6 @@ body {
   border: 1px solid #dbe2ea;
   border-radius: 12px;
   outline: none;
-  transition: 0.3s;
 }
 
 .input-group input:focus,
@@ -258,7 +253,8 @@ body {
   background: #1d4ed8;
 }
 
-/* ================= MODULE CARD ================= */
+/* ================= MODULE ================= */
+
 .module-list {
   margin-top: 20px;
 }
@@ -281,7 +277,76 @@ body {
   color: #475569;
 }
 
+/* ================= MODAL ================= */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(15, 23, 42, 0.6);
+
+  display: flex;
+  align-items: center;
+  justify-content: center;
+
+  opacity: 0;
+  visibility: hidden;
+
+  transition: 0.3s;
+  z-index: 3000;
+}
+
+.modal-overlay.active {
+  opacity: 1;
+  visibility: visible;
+}
+
+.modal-box {
+  width: 90%;
+  max-width: 400px;
+
+  background: white;
+  padding: 30px;
+  border-radius: 20px;
+
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.2);
+
+  animation: modalShow 0.3s ease;
+}
+
+.modal-box h2 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  margin-bottom: 10px;
+}
+
+.modal-box p {
+  color: #64748b;
+  margin-bottom: 20px;
+}
+
+.error-text {
+  color: #ef4444 !important;
+  text-align: center;
+  margin-top: 12px;
+  font-size: 14px;
+}
+
+@keyframes modalShow {
+  from {
+    transform: translateY(-20px);
+    opacity: 0;
+  }
+
+  to {
+    transform: translateY(0);
+    opacity: 1;
+  }
+}
+
 /* ================= RESPONSIVE ================= */
+
 @media (max-width: 768px) {
   .sidebar {
     left: -100%;
@@ -304,58 +369,170 @@ body {
     justify-content: center;
   }
 
-  .topbar {
-    margin-bottom: 20px;
-  }
-
   .topbar h1 {
     font-size: 20px;
   }
 
   .cards {
     grid-template-columns: 1fr;
-    gap: 15px;
   }
+}
 
-  .card {
+/* ================= FILE INPUT ================= */
+
+input[type="file"] {
+  width: 100%;
+  padding: 12px;
+  border: 2px dashed #cbd5e1;
+  border-radius: 12px;
+  background: #f8fafc;
+  cursor: pointer;
+  transition: 0.3s;
+}
+
+input[type="file"]:hover {
+  border-color: #2563eb;
+  background: #eff6ff;
+}
+
+/* ================= PARAMETRE ================= */
+
+#firmwareArea h3 {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+/* ================= PARAMETRE LAYOUT ================= */
+
+.settings-layout {
+  display: flex;
+  gap: 20px;
+  align-items: flex-start;
+}
+
+.settings-sidebar {
+  width: 260px;
+  background: white;
+  padding: 18px;
+  border-radius: 18px;
+  box-shadow: 0 4px 15px rgba(0, 0, 0, 0.08);
+
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.settings-btn {
+  border: none;
+  background: #f1f5f9;
+  padding: 14px;
+  border-radius: 14px;
+
+  cursor: pointer;
+
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  font-size: 15px;
+  font-weight: 500;
+
+  transition: 0.3s;
+}
+
+.settings-btn:hover {
+  background: #dbeafe;
+}
+
+.settings-btn.active {
+  background: #2563eb;
+  color: white;
+}
+
+.settings-content {
+  flex: 1;
+  width: 100%;
+}
+
+.setting-page {
+  display: none;
+}
+
+.setting-page.active {
+  display: block;
+}
+
+/* ================= CARACTERISTIQUES ================= */
+
+.characteristic-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+  gap: 18px;
+}
+
+.characteristic-card {
+  background: #f8fafc;
+  border: 1px solid #e2e8f0;
+
+  border-radius: 16px;
+  padding: 18px;
+
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  transition: 0.3s;
+}
+
+.characteristic-card:hover {
+  transform: translateY(-3px);
+  border-color: #2563eb;
+}
+
+.char-label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  color: #64748b;
+  font-size: 14px;
+}
+
+.char-value {
+  font-size: 18px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+/* ================= RESPONSIVE PARAMETRE ================= */
+
+/* ================= MOBILE FIX PARAMETRE ================= */
+
+@media (max-width: 768px) {
+  .settings-layout {
     width: 100%;
-    padding: 18px;
+    display: flex;
+    flex-direction: column;
   }
 
-  .card h2 {
-    font-size: 24px;
+  .settings-content {
+    width: 100%;
   }
 
-  .card p {
-    font-size: 14px;
-  }
-
-  .card-icon {
-    width: 50px;
-    height: 50px;
-    font-size: 20px;
+  .setting-page {
+    width: 100%;
   }
 
   .form-box {
     width: 100%;
-    padding: 18px;
   }
 
-  .input-group input,
-  .input-group select {
-    width: 100%;
-    font-size: 14px;
-    padding: 12px;
+  .characteristic-grid {
+    grid-template-columns: 1fr;
   }
 
-  .btn {
+  .characteristic-card {
     width: 100%;
-    padding: 12px;
-    font-size: 14px;
-  }
-
-  .module-card {
-    width: 100%;
-    padding: 16px;
   }
 }
