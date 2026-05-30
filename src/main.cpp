@@ -15,8 +15,9 @@
 #define D4 13  // Unités (droite)
 
 // Boutons
-#define BTN_PLUS 27
-#define BTN_MINUS 26 
+#define BTN_PLUS 25    // Bouton incrémenter
+#define BTN_MINUS 33   // Bouton décrémenter
+#define BTN_RESET 27   // Bouton remise à zéro
 
 #define SEUIL 80 
 #define INACTIVITY_TIMEOUT 20000UL 
@@ -40,9 +41,25 @@ bool objetDetecte = false;
 
 bool ancienEtatPlus = HIGH;
 bool ancienEtatMinus = HIGH;
+bool ancienEtatReset = HIGH;
 
 unsigned long lastActivityTime = 0;
 bool displayEnabled = true;
+
+// Variables pour la gestion non-bloquante
+unsigned long lastLoopTime = 0;
+const unsigned long LOOP_INTERVAL = 400;
+
+// Variables pour la gestion du buzzer/LED
+unsigned long buzzerLedStartTime = 0;
+bool buzzerLedActive = false;
+const unsigned long BUZZER_LED_DURATION = 300;
+
+// Variables pour l'anti-rebond des boutons
+unsigned long lastDebounceTimePlus = 0;
+unsigned long lastDebounceTimeMinus = 0;
+unsigned long lastDebounceTimeReset = 0;
+const unsigned long DEBOUNCE_DELAY = 200;
 
 void setup() {
   Serial.begin(115200);
@@ -62,6 +79,7 @@ void setup() {
   
   pinMode(BTN_PLUS, INPUT_PULLUP);
   pinMode(BTN_MINUS, INPUT_PULLUP);
+  pinMode(BTN_RESET, INPUT_PULLUP);
 
   digitalWrite(D1, LOW);
   digitalWrite(D2, LOW);
@@ -69,9 +87,11 @@ void setup() {
   digitalWrite(D4, LOW);
 
   lastActivityTime = millis();
+  lastLoopTime = millis();
 
   Serial.println("=== Systeme de comptage avec veille ===");
   Serial.println("Veille automatique après 20 secondes d'inactivité");
+  Serial.println("Boutons: + (pin25), - (pin33), RESET (pin27)");
 }
 
 float lireDistance() {
@@ -86,6 +106,23 @@ float lireDistance() {
   return distance;
 }
 
+void activerBuzzerLed() {
+  buzzerLedActive = true;
+  buzzerLedStartTime = millis();
+  tone(BUZZER_PIN, 1500);
+  digitalWrite(LED, HIGH);
+}
+
+void gererBuzzerLed() {
+  if (buzzerLedActive) {
+    if (millis() - buzzerLedStartTime >= BUZZER_LED_DURATION) {
+      noTone(BUZZER_PIN);
+      digitalWrite(LED, LOW);
+      buzzerLedActive = false;
+    }
+  }
+}
+
 void afficherNombre(int nombre) {
   if (!displayEnabled) {
     digitalWrite(D1, LOW);
@@ -95,24 +132,16 @@ void afficherNombre(int nombre) {
     return;
   }
 
-  // Extraire chaque chiffre selon l'ordre physique d'affichage
-  // Ordre physique de gauche à droite : D1 (Milliers) → D3 (Centaines) → D2 (Dizaines) → D4 (Unités)
-  int milliers = (nombre / 1000) % 10;   // D1
-  int centaines = (nombre / 100) % 10;   // D3
-  int dizaines = (nombre / 10) % 10;     // D2
-  int unites = nombre % 10;              // D4
+  int milliers = (nombre / 1000) % 10;
+  int centaines = (nombre / 100) % 10;
+  int dizaines = (nombre / 10) % 10;
+  int unites = nombre % 10;
 
   digitalWrite(LATCH_PIN, LOW);
 
-  // Ordre d'envoi (inverse du chaînage physique)
-  // Chaînage : sr1 → sr3 → sr2 → sr4
-  // Donc envoi : sr4, sr2, sr3, sr1
-  
-  // 1. Dernier registre → sr4 (Unités - D4)
   shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, seg[unites]);
   digitalWrite(D4, HIGH);
 
-  // 2. Avant-dernier → sr2 (Dizaines - D2)
   if (nombre >= 10) {
     shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, seg[dizaines]);
     digitalWrite(D2, HIGH);
@@ -121,7 +150,6 @@ void afficherNombre(int nombre) {
     digitalWrite(D2, LOW);
   }
 
-  // 3. Deuxième → sr3 (Centaines - D3)
   if (nombre >= 100) {
     shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, seg[centaines]);
     digitalWrite(D3, HIGH);
@@ -130,7 +158,6 @@ void afficherNombre(int nombre) {
     digitalWrite(D3, LOW);
   }
 
-  // 4. Premier registre → sr1 (Milliers - D1)
   if (nombre >= 1000) {
     shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, seg[milliers]);
     digitalWrite(D1, HIGH);
@@ -142,22 +169,16 @@ void afficherNombre(int nombre) {
   digitalWrite(LATCH_PIN, HIGH);
 }
 
-void loop() {
-  unsigned long currentTime = millis();
+void gererDetectionUltrason() {
   float distance = lireDistance();
 
-  // Détection ultrason
   if (distance > 0 && distance < SEUIL) {
     if (!objetDetecte) {
       compteur++;
       objetDetecte = true;
-      lastActivityTime = currentTime;
+      lastActivityTime = millis();
       displayEnabled = true;
-
-      tone(BUZZER_PIN, 1500, 300);
-      digitalWrite(LED, HIGH);
-      delay(300);
-      digitalWrite(LED, LOW);
+      activerBuzzerLed();
 
       Serial.print("→ Obstacle détecté ! Compteur = ");
       Serial.println(compteur);
@@ -165,38 +186,76 @@ void loop() {
   } else {
     objetDetecte = false;
   }
+}
 
-  // Bouton +
+void gererBoutons() {
+  unsigned long currentTime = millis();
+  
+  // Bouton + (pin 25)
   bool etatPlus = digitalRead(BTN_PLUS);
   if (ancienEtatPlus == HIGH && etatPlus == LOW) {
-    compteur++;
-    lastActivityTime = currentTime;
-    displayEnabled = true;
-    Serial.print("→ Bouton + | Compteur = ");
-    Serial.println(compteur);
-    delay(200);
+    if (currentTime - lastDebounceTimePlus >= DEBOUNCE_DELAY) {
+      compteur++;
+      lastActivityTime = currentTime;
+      displayEnabled = true;
+      lastDebounceTimePlus = currentTime;
+      Serial.print("→ Bouton + | Compteur = ");
+      Serial.println(compteur);
+      // Bref retour sonore pour confirmer l'appui
+      tone(BUZZER_PIN, 1000, 100);
+    }
   }
   ancienEtatPlus = etatPlus;
 
-  // Bouton -
+  // Bouton - (pin 33)
   bool etatMinus = digitalRead(BTN_MINUS);
   if (ancienEtatMinus == HIGH && etatMinus == LOW) {
-    if (compteur > 0) compteur--;
-    lastActivityTime = currentTime;
-    displayEnabled = true;
-    Serial.print("→ Bouton - | Compteur = ");
-    Serial.println(compteur);
-    delay(200);
+    if (currentTime - lastDebounceTimeMinus >= DEBOUNCE_DELAY) {
+      if (compteur > 0) compteur--;
+      lastActivityTime = currentTime;
+      displayEnabled = true;
+      lastDebounceTimeMinus = currentTime;
+      Serial.print("→ Bouton - | Compteur = ");
+      Serial.println(compteur);
+      // Bref retour sonore pour confirmer l'appui
+      tone(BUZZER_PIN, 1000, 100);
+    }
   }
   ancienEtatMinus = etatMinus;
 
-  // Gestion de la veille
+  // Bouton RESET (pin 27) - Remet le compteur à ZÉRO
+  bool etatReset = digitalRead(BTN_RESET);
+  if (ancienEtatReset == HIGH && etatReset == LOW) {
+    if (currentTime - lastDebounceTimeReset >= DEBOUNCE_DELAY) {
+      compteur = 0;
+      lastActivityTime = currentTime;
+      displayEnabled = true;
+      lastDebounceTimeReset = currentTime;
+      Serial.println("!!! BOUTON RESET - COMPTEUR REMIS À ZÉRO !!!");
+      // Signal sonore spécifique pour le reset (2 bips)
+      tone(BUZZER_PIN, 2000, 150);
+      delay(100);
+      tone(BUZZER_PIN, 2000, 150);
+    }
+  }
+  ancienEtatReset = etatReset;
+}
+
+void loop() {
+  unsigned long currentTime = millis();
+  
+  gererBuzzerLed();
+  gererBoutons();
+  gererDetectionUltrason();
+
   if (currentTime - lastActivityTime >= INACTIVITY_TIMEOUT) {
     displayEnabled = false;
   } else {
     displayEnabled = true;
   }
 
-  afficherNombre(compteur);
-  delay(400);
+  if (currentTime - lastLoopTime >= LOOP_INTERVAL) {
+    afficherNombre(compteur);
+    lastLoopTime = currentTime;
+  }
 }
