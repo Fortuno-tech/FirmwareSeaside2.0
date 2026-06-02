@@ -6,12 +6,10 @@
 
     <title>SmartCount</title>
 
-    <link
-      rel="stylesheet"
-      href="bootstrap-icons-1.13.1/bootstrap-icons.css"
-    />
+    <link rel="stylesheet" href="bootstrap-icons-1.13.1/bootstrap-icons.css" />
 
     <link rel="stylesheet" href="style.css" />
+    <script src="sweetalert2/sweetalert2.css"></script>
   </head>
 
   <body>
@@ -349,12 +347,18 @@
 
         <p>Veuillez saisir le mot de passe</p>
 
-        <div class="input-group">
+        <div class="input-group password-group">
           <input
             type="password"
             id="adminPassword"
             placeholder="Mot de passe"
           />
+
+          <i
+            class="bi bi-eye"
+            id="toggleAdminPassword"
+            onclick="togglePassword('adminPassword', this)"
+          ></i>
         </div>
 
         <button class="btn" onclick="confirmPassword()">
@@ -367,5 +371,6 @@
     </div>
 
     <script src="script.js"></script>
+    <script src="sweetalert2/sweetalert2.all.min.js"></script>
   </body>
 </html>

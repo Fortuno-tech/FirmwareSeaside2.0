@@ -19,9 +19,9 @@ body {
 /* ================= SIDEBAR ================= */
 
 .sidebar {
-  width: 250px;
-  background: #111827;
-  color: white;
+  width: 260px;
+  background: #ffffff;
+  color: #1e293b;
   padding: 20px;
   position: fixed;
   height: 100vh;
@@ -29,6 +29,9 @@ body {
   top: 0;
   transition: 0.3s;
   z-index: 1000;
+
+  border-right: 1px solid #e2e8f0;
+  box-shadow: 0 0 25px rgba(0, 0, 0, 0.08);
 }
 
 .logo {
@@ -48,7 +51,7 @@ body {
 
 .menu a {
   text-decoration: none;
-  color: white;
+  color: #475569;
   padding: 14px;
   border-radius: 12px;
   display: flex;
@@ -59,11 +62,17 @@ body {
 }
 
 .menu a:hover {
-  background: #2563eb;
+  background: #eff6ff;
+  color: #2563eb;
 }
 
 .menu a.active {
   background: #2563eb;
+  color: white;
+}
+
+.logo {
+  color: #2563eb;
 }
 
 /* ================= MAIN ================= */
@@ -360,7 +369,7 @@ body {
   .main {
     margin-left: 0;
     width: 100%;
-    padding: 15px;
+    padding: 12px;
   }
 
   .burger {
@@ -375,6 +384,32 @@ body {
 
   .cards {
     grid-template-columns: 1fr;
+    gap: 15px;
+  }
+
+  .card {
+    padding: 18px;
+  }
+
+  .card h2 {
+    font-size: 28px;
+  }
+
+  .form-box {
+    padding: 18px;
+  }
+
+  .topbar {
+    margin-bottom: 20px;
+  }
+
+  .btn {
+    height: 50px;
+  }
+
+  .input-group input,
+  .input-group select {
+    height: 50px;
   }
 }
 
@@ -505,8 +540,6 @@ input[type="file"]:hover {
   color: #0f172a;
 }
 
-/* ================= RESPONSIVE PARAMETRE ================= */
-
 /* ================= MOBILE FIX PARAMETRE ================= */
 
 @media (max-width: 768px) {
@@ -535,4 +568,105 @@ input[type="file"]:hover {
   .characteristic-card {
     width: 100%;
   }
+  body {
+    background: #ffffff;
+  }
+
+  .sidebar {
+    left: -100%;
+    width: 240px;
+    border-right: 1px solid #e5e7eb;
+    box-shadow: 4px 0 15px rgba(0, 0, 0, 0.08);
+  }
+
+  .sidebar.active {
+    left: 0;
+  }
+
+  .main {
+    margin-left: 0;
+    width: 100%;
+    padding: 12px;
+  }
+
+  .burger {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border: 1px solid #e5e7eb;
+    box-shadow: none;
+  }
+
+  .topbar {
+    margin-bottom: 20px;
+    padding-bottom: 15px;
+    border-bottom: 1px solid #e5e7eb;
+  }
+
+  .topbar h1 {
+    font-size: 20px;
+  }
+
+  .cards {
+    grid-template-columns: 1fr;
+    gap: 15px;
+  }
+
+  .card,
+  .form-box,
+  .module-card,
+  .settings-sidebar,
+  .characteristic-card {
+    border: 1px solid #e5e7eb;
+    box-shadow: none;
+  }
+
+  .card {
+    padding: 18px;
+    border-radius: 14px;
+  }
+
+  .form-box,
+  .module-card,
+  .characteristic-card {
+    border-radius: 14px;
+  }
+
+  .card h2 {
+    font-size: 28px;
+  }
+
+  .btn,
+  .input-group input,
+  .input-group select {
+    height: 50px;
+  }
+
+  .settings-layout {
+    flex-direction: column;
+  }
+
+  .settings-content,
+  .setting-page,
+  .form-box {
+    width: 100%;
+  }
+
+  .characteristic-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
+.password-group {
+  position: relative;
+}
+
+.password-group i {
+  position: absolute;
+  right: 15px;
+  top: 50%;
+  transform: translateY(-50%);
+  cursor: pointer;
+  color: #64748b;
+  font-size: 18px;
 }

@@ -71,6 +71,26 @@ function openPasswordModal(element) {
   document.getElementById("adminPassword").value = "";
 
   document.getElementById("passwordError").innerText = "";
+
+  currentParamElement = element;
+
+  document.getElementById("passwordModal").classList.add("active");
+
+  document.getElementById("adminPassword").value = "";
+
+  document.getElementById("passwordError").innerText = "";
+
+  setTimeout(() => {
+    document.getElementById("adminPassword").focus();
+  }, 100);
+
+  document
+    .getElementById("adminPassword")
+    .addEventListener("keydown", function (e) {
+      if (e.key === "Enter") {
+        confirmPassword();
+      }
+    });
 }
 
 function confirmPassword() {
@@ -79,7 +99,15 @@ function confirmPassword() {
   if (password === "1112") {
     document.getElementById("passwordModal").classList.remove("active");
 
-    showPage("parametre", currentParamElement);
+    Swal.fire({
+      icon: "success",
+      title: "Accès autorisé",
+      text: "Bienvenue dans les paramètres",
+      confirmButtonText: "Continuer",
+      confirmButtonColor: "#2563eb",
+    }).then(() => {
+      showPage("parametre", currentParamElement);
+    });
 
     return;
   }
@@ -232,14 +260,50 @@ document.getElementById("moduleForm").addEventListener("submit", function (e) {
   let mac2 = document.getElementById("mac2").value.trim();
 
   if (!isValidMAC(mac1)) {
-    alert("Adresse MAC invalide");
+    Swal.fire({
+      icon: "error",
+      title: "Adresse MAC invalide",
+      text: "Veuillez respecter le format AA:BB:CC:DD:EE:FF",
+    });
     return;
   }
 
   if (!isValidMAC(mac2)) {
-    alert("Adresse MAC autre module invalide");
+    Swal.fire({
+      icon: "error",
+      title: "Adresse MAC invalide",
+      text: "Veuillez vérifier l'adresse MAC du module associé",
+    });
     return;
   }
+  const data = {
+    type: type,
+    macMaster: mac1,
+    macSlave: mac2,
+  };
+
+  fetch("http://localhost:3000/module", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  })
+    .then((response) => response.json())
+    .then((result) => {
+      Swal.fire({
+        icon: "success",
+        title: "Module ajouté",
+        text: result.message || "Succès",
+      });
+    })
+    .catch((error) => {
+      Swal.fire({
+        icon: "error",
+        title: "Erreur",
+        text: error.message,
+      });
+    });
 
   let type = document.getElementById("typeModule").value;
 
@@ -306,7 +370,11 @@ function submit_reseau(event) {
   let inputs = area.querySelectorAll("input");
 
   if (inputs.length < 2) {
-    alert("Formulaire incomplet");
+    Swal.fire({
+      icon: "warning",
+      title: "Formulaire incomplet",
+      text: "Veuillez remplir tous les champs",
+    });
     return;
   }
 
@@ -315,22 +383,53 @@ function submit_reseau(event) {
   let password = inputs[1].value.trim();
 
   if (ssid.length < 4 || ssid.length > 20) {
-    alert("SSID invalide");
+    Swal.fire({
+      icon: "warning",
+      title: "SSID invalide",
+      text: "Le nom doit contenir entre 4 et 20 caractères",
+    });
+
     return;
   }
 
   if (password.length < 8 || password.length > 20) {
-    alert("Mot de passe invalide");
+    Swal.fire({
+      icon: "warning",
+      title: "Mot de passe invalide",
+      text: "Le mot de passe doit contenir entre 8 et 20 caractères",
+    });
+
     return;
   }
 
-  if (mode === "ap") {
-    alert("Configuration Point d'accès enregistrée !");
-  }
+  const data = {
+    mode: mode,
+    ssid: ssid,
+    password: password,
+  };
 
-  if (mode === "online") {
-    alert("Configuration WiFi enregistrée !");
-  }
+  fetch("http://localhost:3000/reseau", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  })
+    .then((response) => response.json())
+    .then((result) => {
+      Swal.fire({
+        icon: "success",
+        title: "Configuration enregistrée",
+        text: result.message || "Succès",
+      });
+    })
+    .catch((error) => {
+      Swal.fire({
+        icon: "error",
+        title: "Erreur",
+        text: error.message,
+      });
+    });
 
   inputs.forEach((input) => {
     input.value = "";
@@ -454,19 +553,59 @@ function uploadOfflineFirmware() {
   let file = document.getElementById("firmwareFile").files[0];
 
   if (!file) {
-    alert("Veuillez sélectionner un firmware");
+    Swal.fire({
+      icon: "warning",
+      title: "Firmware manquant",
+      text: "Veuillez sélectionner un fichier .bin",
+    });
     return;
   }
 
   // vérification extension
   if (!file.name.endsWith(".bin")) {
-    alert("Le fichier doit être en .bin");
+    Swal.fire({
+      icon: "error",
+      title: "Fichier invalide",
+      text: "Seuls les fichiers .bin sont acceptés",
+    });
     return;
   }
+  const data = {
+    module: module,
+    firmwareUrl: url,
+  };
+
+  let formData = new FormData();
+
+  formData.append("firmware", file);
+
+  fetch("http://localhost:3000/update-offline", {
+    method: "POST",
+    body: formData,
+  })
+    .then((response) => response.json())
+    .then((result) => {
+      Swal.fire({
+        icon: "success",
+        title: "Firmware envoyé",
+        text: result.message,
+      });
+    })
+    .catch((error) => {
+      Swal.fire({
+        icon: "error",
+        title: "Erreur",
+        text: error.message,
+      });
+    });
 
   console.log("Firmware sélectionné :", file.name);
 
-  alert("Firmware téléversé avec succès en mode hors ligne !");
+  Swal.fire({
+    icon: "success",
+    title: "Téléversement réussi",
+    text: "Le firmware a été envoyé avec succès",
+  });
 }
 
 // ================= UPLOAD ONLINE =================
@@ -477,21 +616,60 @@ function uploadOnlineFirmware() {
   let url = document.getElementById("firmwareUrl").value.trim();
 
   if (url === "") {
-    alert("Veuillez saisir une URL firmware");
+    Swal.fire({
+      icon: "warning",
+      title: "URL manquante",
+      text: "Veuillez saisir l'adresse du firmware",
+    });
     return;
   }
 
   // simple validation
   if (!url.startsWith("http://") && !url.startsWith("https://")) {
-    alert("URL invalide");
+    Swal.fire({
+      icon: "error",
+      title: "URL invalide",
+      text: "L'adresse doit commencer par http:// ou https://",
+    });
     return;
   }
+  const data = {
+    module: module,
+    firmwareUrl: url,
+  };
 
-  console.log("Module :", module);
+  fetch("http://localhost:3000/update-online", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify(data),
+  })
+    .then((response) => response.json())
+    .then((result) => {
+      Swal.fire({
+        icon: "success",
+        title: "Mise à jour lancée",
+        text: result.message,
+      });
+    })
+    .catch((error) => {
+      Swal.fire({
+        icon: "error",
+        title: "Erreur",
+        text: error.message,
+      });
+    });
 
-  console.log("Firmware URL :", url);
+  /*console.log("Module :", module);
 
-  alert("Téléchargement et téléversement du firmware lancé !");
+  console.log("Firmware URL :", url);*/
+
+  Swal.fire({
+    icon: "success",
+    title: "Mise à jour lancée",
+    text: "Le téléchargement du firmware a démarré",
+  });
 }
 
 // ================= DEFAULT FIRMWARE =================
@@ -514,6 +692,22 @@ function showSettingPage(pageId, element) {
   });
 
   element.classList.add("active");
+}
+
+function togglePassword(inputId, icon) {
+  let input = document.getElementById(inputId);
+
+  if (input.type === "password") {
+    input.type = "text";
+
+    icon.classList.remove("bi-eye");
+    icon.classList.add("bi-eye-slash");
+  } else {
+    input.type = "password";
+
+    icon.classList.remove("bi-eye-slash");
+    icon.classList.add("bi-eye");
+  }
 }
 
 changeNetworkMode();
