@@ -10,24 +10,14 @@
 AsyncWebServer server(80);
 
 void setupServer() {
-
   server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
 
-  server.on("/api/count", HTTP_GET, [](AsyncWebServerRequest* request) {
-    StaticJsonDocument<200> doc;
-    doc["total"]   = totalPersonnes;
-    doc["current"] = personnesActuelles;
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
-  });
-
   server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* request) {
-    StaticJsonDocument<200> doc;
-    doc["mqtt"]   = "disconnected";
+    StaticJsonDocument<256> doc;
+    doc["total"]  = totalPersonnes;
+    doc["current"] = personnesActuelles;
     doc["role"]   = moduleRole;
     doc["ip"]     = WiFi.softAPIP().toString();
-    doc["ssid"]   = apSSID;
     doc["mac"]    = WiFi.macAddress();
     String response;
     serializeJson(doc, response);
@@ -38,20 +28,11 @@ void setupServer() {
     [](AsyncWebServerRequest* request) {},
     NULL,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-      StaticJsonDocument<200> doc;
+      StaticJsonDocument<256> doc;
       deserializeJson(doc, data, len);
-
       if(doc.containsKey("role")) moduleRole = doc["role"].as<String>();
       if(doc.containsKey("masterMAC")) masterMAC = doc["masterMAC"].as<String>();
-
-      Serial.println("Nouvelle config module reçue !");
-      Serial.print("Rôle: "); Serial.println(moduleRole);
-      Serial.print("Master MAC: "); Serial.println(masterMAC);
-
       request->send(200, "application/json", "{\"status\":\"ok\"}");
-      
-      // Optionnel: Redémarrer pour appliquer les changements proprement
-      // delay(1000); ESP.restart(); 
     }
   );
 
@@ -59,18 +40,11 @@ void setupServer() {
     [](AsyncWebServerRequest* request) {},
     NULL,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-      StaticJsonDocument<200> doc;
+      StaticJsonDocument<256> doc;
       deserializeJson(doc, data, len);
-
-      String newSSID     = doc["ssid"]     | apSSID;
-      String newPassword = doc["password"] | apPassword;
-
-      if (newSSID.length() < 1 || newPassword.length() < 8) {
-        request->send(400, "application/json", "{\"error\":\"SSID vide ou MDP trop court\"}");
-        return;
-      }
-
-      modifierAP(newSSID, newPassword);
+      String newSSID = doc["ssid"] | apSSID;
+      String newPass = doc["password"] | apPassword;
+      modifierAP(newSSID, newPass);
       request->send(200, "application/json", "{\"status\":\"ok\"}");
     }
   );
@@ -80,5 +54,4 @@ void setupServer() {
   });
 
   server.begin();
-  Serial.println("Serveur démarré !");
 }
