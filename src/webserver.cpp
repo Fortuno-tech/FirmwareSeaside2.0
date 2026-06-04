@@ -1,15 +1,8 @@
-#include "webserver.h"
+﻿#include "webserver.h"
 #include "config.h"
 #include "wifi_ap.h"
-
-#ifdef ESP32
-  #include <WiFi.h>
-  #include <AsyncTCP.h>
-#else
-  #include <ESP8266WiFi.h>
-  #include <ESPAsyncTCP.h>
-#endif
-
+#include <WiFi.h>
+#include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
@@ -32,24 +25,37 @@ void setupServer() {
   server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* request) {
     StaticJsonDocument<200> doc;
     doc["mqtt"]   = "disconnected";
-    doc["espnow"] = "inactive";
+    doc["role"]   = moduleRole;
     doc["ip"]     = WiFi.softAPIP().toString();
     doc["ssid"]   = apSSID;
+    doc["mac"]    = WiFi.macAddress();
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
   });
 
-  server.on("/api/config", HTTP_GET, [](AsyncWebServerRequest* request) {
-    StaticJsonDocument<200> doc;
-    doc["ssid"]     = apSSID;
-    doc["password"] = apPassword;
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
-  });
+  server.on("/api/config/module", HTTP_POST,
+    [](AsyncWebServerRequest* request) {},
+    NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      StaticJsonDocument<200> doc;
+      deserializeJson(doc, data, len);
 
-  server.on("/api/config", HTTP_POST,
+      if(doc.containsKey("role")) moduleRole = doc["role"].as<String>();
+      if(doc.containsKey("masterMAC")) masterMAC = doc["masterMAC"].as<String>();
+
+      Serial.println("Nouvelle config module reçue !");
+      Serial.print("Rôle: "); Serial.println(moduleRole);
+      Serial.print("Master MAC: "); Serial.println(masterMAC);
+
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+      
+      // Optionnel: Redémarrer pour appliquer les changements proprement
+      // delay(1000); ESP.restart(); 
+    }
+  );
+
+  server.on("/api/config/ap", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
     NULL,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
@@ -60,8 +66,7 @@ void setupServer() {
       String newPassword = doc["password"] | apPassword;
 
       if (newSSID.length() < 1 || newPassword.length() < 8) {
-        request->send(400, "application/json",
-          "{\"error\":\"SSID vide ou MDP trop court (min 8)\"}");
+        request->send(400, "application/json", "{\"error\":\"SSID vide ou MDP trop court\"}");
         return;
       }
 

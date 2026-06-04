@@ -1,75 +1,62 @@
-#include <Arduino.h>
+﻿#include <Arduino.h>
+#include <WiFi.h>
 #include <LittleFS.h>
-
-#ifdef ESP32
-  #include <WiFi.h>
-  #include <AsyncTCP.h>
-#else
-  #include <ESP8266WiFi.h>
-  #include <ESPAsyncTCP.h>
-#endif
-
+#include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include "config.h"
 #include "wifi_ap.h"
 #include "webserver.h"
+#include "espnow.h"
 #include "ota.h"
 
-#ifdef ESP32
-  #include "espnow.h"
-#else
-  #include "udp.h"
-#endif
-
-// Rôle du module : "master" ou "slave"
-#define ROLE "master"
+#define LED_PIN 2
 
 void setup() {
   Serial.begin(115200);
+  pinMode(LED_PIN, OUTPUT);
   delay(1000);
   Serial.println("=== Seaside 2.0 - Boot ===");
 
-  // LittleFS
   if (!LittleFS.begin()) {
     Serial.println("Erreur LittleFS !");
   } else {
     Serial.println("LittleFS OK");
   }
 
-  // WiFi AP
   setupAP();
-
-  // Serveur HTTP
   setupServer();
-
-  //OTA 
   setupOTA();
 
-  // Communication
-  #ifdef ESP32
-    if (String(ROLE) == "master") {
-      setupESPNOW_Master();
-    } else {
-      setupESPNOW_Slave();
-    }
-  #else
-    if (String(ROLE) == "master") {
-      setupUDP_Master();
-    } else {
-      setupUDP_Slave();
-    }
-  #endif
+  if (moduleRole == "master") {
+    setupESPNOW_Master();
+  } else {
+    setupESPNOW_Slave();
+  }
 
-  Serial.print("Rôle : ");
-  Serial.println(ROLE);
+  Serial.print("Role : ");
+  Serial.println(moduleRole);
 }
 
 void loop() {
   handleOTA();
-  #ifndef ESP32
-    // ESP8266 Master écoute UDP en permanence
-    if (String(ROLE) == "master") {
-      udp_receive();
+
+  if (moduleRole == "slave") {
+    static unsigned long lastBlink = 0;
+    if (millis() - lastBlink > 2000) {
+      digitalWrite(LED_PIN, !digitalRead(LED_PIN));
+      lastBlink = millis();
+      Serial.println("Slave Blink...");
+      
+      if (masterMAC != "00:00:00:00:00:00") {
+          uint8_t macBytes[6];
+          int values[6];
+          if(sscanf(masterMAC.c_str(), "%x:%x:%x:%x:%x:%x", &values[0], &values[1], &values[2], &values[3], &values[4], &values[5]) == 6) {
+              for(int i=0; i<6; i++) macBytes[i] = (uint8_t)values[i];
+              espnow_sendData(macBytes, personnesActuelles);
+          }
+      }
     }
-  #endif
+  } else {
+    digitalWrite(LED_PIN, HIGH);
+  }
 }

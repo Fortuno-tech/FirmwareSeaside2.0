@@ -1,11 +1,6 @@
-#include "wifi_ap.h"
+﻿#include "wifi_ap.h"
 #include "config.h"
-
-#ifdef ESP32
-  #include <WiFi.h>
-#else
-  #include <ESP8266WiFi.h>
-#endif
+#include <WiFi.h>
 
 void setupAP() {
   WiFi.mode(WIFI_AP);
