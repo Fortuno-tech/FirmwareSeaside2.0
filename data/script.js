@@ -273,19 +273,11 @@ function submit_reseau() {
 
   // ================= RESULTAT =================
   if (mode === "ap") {
-    fetch("/api/config", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ssid: ssid, password: password })
-    })
-    .then(r => r.json())
-    .then(data => {
-      if (data.status === "ok") {
-        alert("Configuration Point d'accès enregistrée !");
-      } else {
-        alert("Erreur : " + data.error);
-      }
-    });
+    console.log("MODE POINT D'ACCÈS");
+    console.log("SSID :", ssid);
+    console.log("PASSWORD :", password);
+
+    alert("Configuration Point d'accès enregistrée !");
   }
 
   if (mode === "online") {
@@ -302,20 +294,3 @@ function submit_reseau() {
 
 // ================= DEFAULT =================
 changeNetworkMode();
-// ================= DASHBOARD AUTO UPDATE =================
-function updateDashboard() {
-  fetch("/api/count")
-    .then(r => r.json())
-    .then(data => {
-      document.getElementById("passageCount").innerText = data.total;
-    });
-
-  fetch("/api/status")
-    .then(r => r.json())
-    .then(data => {
-      console.log("Status:", data);
-    });
-}
-
-setInterval(updateDashboard, 3000);
-updateDashboard();
