@@ -61,6 +61,12 @@ unsigned long lastDebounceTimeMinus = 0;
 unsigned long lastDebounceTimeReset = 0;
 const unsigned long DEBOUNCE_DELAY = 200;
 
+// NOUVEAU : Variables pour la gestion du réveil des boutons
+unsigned long lastWakeUpTimePlus = 0;
+unsigned long lastWakeUpTimeMinus = 0;
+unsigned long lastWakeUpTimeReset = 0;
+const unsigned long WAKE_WINDOW = 500; // Fenêtre de 500ms pour réveil vs action
+
 void setup() {
   Serial.begin(115200);
   
@@ -195,14 +201,30 @@ void gererBoutons() {
   bool etatPlus = digitalRead(BTN_PLUS);
   if (ancienEtatPlus == HIGH && etatPlus == LOW) {
     if (currentTime - lastDebounceTimePlus >= DEBOUNCE_DELAY) {
-      compteur++;
-      lastActivityTime = currentTime;
-      displayEnabled = true;
+      
+      // Cas 1: L'afficheur est éteint -> on le réveille seulement
+      if (!displayEnabled) {
+        displayEnabled = true;
+        lastActivityTime = currentTime;
+        lastWakeUpTimePlus = currentTime;  // Enregistre le moment du réveil
+        Serial.println("→ Réveil de l'afficheur (bouton +)");
+      }
+      // Cas 2: L'afficheur est allumé
+      else {
+        // Vérifie si on vient juste de réveiller l'afficheur avec ce bouton
+        if (currentTime - lastWakeUpTimePlus <= WAKE_WINDOW) {
+          // Dans la fenêtre de réveil, on ne fait qu'ignorer pour éviter double action
+          Serial.println("→ Ignoré (réveil récent)");
+        } else {
+          // Action normale : incrémentation
+          compteur++;
+          lastActivityTime = currentTime;
+          Serial.print("→ Bouton + | Compteur = ");
+          Serial.println(compteur);
+        }
+      }
+      
       lastDebounceTimePlus = currentTime;
-      Serial.print("→ Bouton + | Compteur = ");
-      Serial.println(compteur);
-      // Bref retour sonore pour confirmer l'appui
-      tone(BUZZER_PIN, 1000, 100);
     }
   }
   ancienEtatPlus = etatPlus;
@@ -211,31 +233,63 @@ void gererBoutons() {
   bool etatMinus = digitalRead(BTN_MINUS);
   if (ancienEtatMinus == HIGH && etatMinus == LOW) {
     if (currentTime - lastDebounceTimeMinus >= DEBOUNCE_DELAY) {
-      if (compteur > 0) compteur--;
-      lastActivityTime = currentTime;
-      displayEnabled = true;
+      
+      // Cas 1: L'afficheur est éteint -> on le réveille seulement
+      if (!displayEnabled) {
+        displayEnabled = true;
+        lastActivityTime = currentTime;
+        lastWakeUpTimeMinus = currentTime;  // Enregistre le moment du réveil
+        Serial.println("→ Réveil de l'afficheur (bouton -)");
+      }
+      // Cas 2: L'afficheur est allumé
+      else {
+        // Vérifie si on vient juste de réveiller l'afficheur avec ce bouton
+        if (currentTime - lastWakeUpTimeMinus <= WAKE_WINDOW) {
+          Serial.println("→ Ignoré (réveil récent)");
+        } else {
+          // Action normale : décrémentation
+          if (compteur > 0) compteur--;
+          lastActivityTime = currentTime;
+          Serial.print("→ Bouton - | Compteur = ");
+          Serial.println(compteur);
+        }
+      }
+      
       lastDebounceTimeMinus = currentTime;
-      Serial.print("→ Bouton - | Compteur = ");
-      Serial.println(compteur);
-      // Bref retour sonore pour confirmer l'appui
-      tone(BUZZER_PIN, 1000, 100);
     }
   }
   ancienEtatMinus = etatMinus;
 
-  // Bouton RESET (pin 27) - Remet le compteur à ZÉRO
+  // Bouton RESET (pin 27)
   bool etatReset = digitalRead(BTN_RESET);
   if (ancienEtatReset == HIGH && etatReset == LOW) {
     if (currentTime - lastDebounceTimeReset >= DEBOUNCE_DELAY) {
-      compteur = 0;
-      lastActivityTime = currentTime;
-      displayEnabled = true;
+      
+      // Cas 1: L'afficheur est éteint -> on le réveille seulement
+      if (!displayEnabled) {
+        displayEnabled = true;
+        lastActivityTime = currentTime;
+        lastWakeUpTimeReset = currentTime;  // Enregistre le moment du réveil
+        Serial.println("→ Réveil de l'afficheur (bouton RESET)");
+      }
+      // Cas 2: L'afficheur est allumé
+      else {
+        // Vérifie si on vient juste de réveiller l'afficheur avec ce bouton
+        if (currentTime - lastWakeUpTimeReset <= WAKE_WINDOW) {
+          Serial.println("→ Ignoré (réveil récent)");
+        } else {
+          // Action normale : reset
+          compteur = 0;
+          lastActivityTime = currentTime;
+          Serial.println("!!! BOUTON RESET - COMPTEUR REMIS À ZÉRO !!!");
+          // Signal sonore spécifique pour le reset (2 bips)
+          tone(BUZZER_PIN, 2000, 150);
+          delay(100);
+          tone(BUZZER_PIN, 2000, 150);
+        }
+      }
+      
       lastDebounceTimeReset = currentTime;
-      Serial.println("!!! BOUTON RESET - COMPTEUR REMIS À ZÉRO !!!");
-      // Signal sonore spécifique pour le reset (2 bips)
-      tone(BUZZER_PIN, 2000, 150);
-      delay(100);
-      tone(BUZZER_PIN, 2000, 150);
     }
   }
   ancienEtatReset = etatReset;
@@ -248,6 +302,7 @@ void loop() {
   gererBoutons();
   gererDetectionUltrason();
 
+  // Gestion de la mise en veille
   if (currentTime - lastActivityTime >= INACTIVITY_TIMEOUT) {
     displayEnabled = false;
   } else {
