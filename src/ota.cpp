@@ -5,7 +5,7 @@
 extern AsyncWebServer server;
 
 void onOTAStart() {
-  Serial.println("OTA: Mise Ã  jour dÃ©marrÃ©e...");
+  Serial.println("OTA: Mise à  jour démarré...");
 }
 
 void onOTAProgress(size_t current, size_t final) {
@@ -14,9 +14,9 @@ void onOTAProgress(size_t current, size_t final) {
 
 void onOTAEnd(bool success) {
   if (success) {
-    Serial.println("OTA: Mise Ã  jour rÃ©ussie !");
+    Serial.println("OTA: Mise à  jour réussie !");
   } else {
-    Serial.println("OTA: Ã‰chec de la mise Ã  jour.");
+    Serial.println("OTA: Echec de la mise à  jour.");
   }
 }
 
@@ -27,7 +27,7 @@ void setupOTA() {
   ElegantOTA.onProgress(onOTAProgress);
   ElegantOTA.onEnd(onOTAEnd);
   
-  Serial.println("ElegantOTA prÃªt sur http://192.168.4.1/update");
+  Serial.println("ElegantOTA pret sur http://192.168.4.1/update");
 }
 
 void handleOTA() {

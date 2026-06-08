@@ -10,4 +10,12 @@ extern int personnesActuelles;
 extern String moduleRole;
 extern String masterMAC;
 
+// WiFi STA
+extern String staSSID;
+extern String staPassword;
+
+// MQTT
+extern String mqttServer;
+extern int mqttPort;
+
 #endif
