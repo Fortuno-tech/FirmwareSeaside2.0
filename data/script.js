@@ -317,7 +317,7 @@ document.getElementById("moduleForm").addEventListener("submit", function (e) {
     typeE: typeEntree,
   };
 
-  fetch("http://localhost:3000/module", {
+  fetch("/api/config/module",{
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -444,7 +444,7 @@ function submit_reseau(event) {
     password: password,
   };
 
-  fetch("http://localhost:3000/reseau", {
+  fetch(mode === "ap" ? "/api/config/ap" : "/api/wifi", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -606,16 +606,11 @@ function uploadOfflineFirmware() {
     });
     return;
   }
-  const data = {
-    module: module,
-    firmwareUrl: url,
-  };
-
   let formData = new FormData();
 
   formData.append("firmware", file);
 
-  fetch("http://localhost:3000/update-offline", {
+  fetch("/update",{
     method: "POST",
     body: formData,
   })
@@ -674,7 +669,7 @@ function uploadOnlineFirmware() {
     firmwareUrl: url,
   };
 
-  fetch("http://localhost:3000/update-online", {
+  fetch("/api/ota/online", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",

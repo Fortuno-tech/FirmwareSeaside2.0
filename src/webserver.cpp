@@ -1,4 +1,4 @@
-﻿#include "webserver.h"
+#include "webserver.h"
 #include "config.h"
 #include "wifi_ap.h"
 #include <WiFi.h>
@@ -21,6 +21,7 @@ void setupServer() {
     doc["role"]    = moduleRole;
     doc["ip"]      = WiFi.softAPIP().toString();
     doc["mac"]     = WiFi.macAddress();
+    doc["connected"] = (WiFi.status() == WL_CONNECTED);
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
@@ -133,7 +134,7 @@ void setupServer() {
         ESP.restart();
       }
     },
-    [](AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {
+    [](AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {  
       if (index == 0) {
         Serial.printf("OTA Start: %s\n", filename.c_str());
         Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000);

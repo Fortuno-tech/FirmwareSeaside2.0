@@ -2,7 +2,7 @@
 #include "config.h"
 #include <esp_now.h>
 #include <WiFi.h>
-// Structure des donnÃ©es Ã©changÃ©es
+// Structure des données échangées
 typedef struct {
   char moduleId[10];
   int count;
@@ -28,7 +28,7 @@ void onDataReceived(const uint8_t* mac, const uint8_t* data, int len) {
   Serial.print(" | Count : ");
   Serial.println(dataReceived.count);
 
-  // Mise Ã  jour compteur global
+  // Mise à  jour compteur global
   totalPersonnes     = dataReceived.count;
   personnesActuelles = dataReceived.count;
 }
@@ -54,7 +54,7 @@ void setupESPNOW_Slave() {
     return;
   }
   esp_now_register_send_cb(onDataSent);
-  Serial.println("ESP-NOW Slave prÃªt !");
+  Serial.println("ESP-NOW Slave pret !");
   Serial.print("MAC Slave : ");
   Serial.println(WiFi.macAddress());
 }
@@ -72,7 +72,7 @@ void espnow_addSlave(uint8_t* mac) {
   }
 }
 
-// Envoyer donnÃ©es (depuis Slave)
+// Envoyer données (depuis Slave)
 void espnow_sendData(uint8_t* mac, int count) {
   strcpy(dataToSend.moduleId, "slave1");
   dataToSend.count = count;
