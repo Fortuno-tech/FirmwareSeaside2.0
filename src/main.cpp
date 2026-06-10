@@ -37,7 +37,7 @@
 const char* STA_SSID_DEFAULT = "TonWiFi";
 const char* STA_PASS_DEFAULT = "TonMotDePasse";
 
-// --- Variables Globales (depuis main_anito.cpp) ---
+// --- Variables Globales ---
 byte seg[10] = {
   0b11000000, // 0
   0b11111001, // 1
@@ -246,7 +246,7 @@ void gererBoutons() {
 void setup() {
   Serial.begin(115200);
   delay(1000);
-  Serial.println("=== Seaside 2.0 - Boot (Integrated with Anito) ===");
+  Serial.println("=== Seaside 2.0 - Boot ===");
 
   // Hardware Pins Setup
   pinMode(DATA_PIN, OUTPUT);
@@ -260,6 +260,9 @@ void setup() {
   pinMode(D2, OUTPUT);
   pinMode(D3, OUTPUT);
   pinMode(D4, OUTPUT);
+  digitalWrite(BUZZER_PIN, LOW);
+  noTone(BUZZER_PIN);
+  digitalWrite(LED, LOW);
   pinMode(BTN_PLUS, INPUT_PULLUP);
   pinMode(BTN_MINUS, INPUT_PULLUP);
   pinMode(BTN_RESET, INPUT_PULLUP);
@@ -302,7 +305,7 @@ void loop() {
 
   unsigned long currentTime = millis();
 
-  // Gestion Hardware Anito
+  // Gestion Hardware 
   gererBuzzerLed();
   gererBoutons();
   gererDetectionUltrason();
