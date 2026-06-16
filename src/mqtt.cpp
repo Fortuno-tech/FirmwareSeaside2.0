@@ -37,55 +37,87 @@ void onMQTTMessage(char* topic, byte* payload, unsigned int length) {
   }
 }
 
-void connectMQTT() {
-  while (!mqttClient.connected()) {
-    Serial.print("Connexion MQTT...");
-    if (mqttClient.connect("Seaside2-Master", MQTT_USER, MQTT_PASS)) {
-      Serial.println("connecté !");
-      mqttClient.subscribe(TOPIC_CONFIG);
-      mqttClient.subscribe(TOPIC_STATUS);
-    } else {
-      Serial.print("Échec, rc=");
-      Serial.print(mqttClient.state());
-      Serial.println(" → retry dans 5s");
-      delay(5000);
-    }
+static unsigned long lastMqttRetry = 0;
+static unsigned long lastWifiCheck = 0;
+static bool wasWifiConnected = false;
+
+bool connectMQTTNonBlocking() {
+  Serial.print("Essai de connexion MQTT vers ");
+  Serial.print(mqttServer);
+  Serial.print(":");
+  Serial.print(mqttPort);
+  Serial.println("...");
+
+  // Génère un ID client unique basé sur l'adresse MAC
+  String clientId = "Seaside2-Master-" + WiFi.macAddress();
+  clientId.replace(":", "");
+
+  if (mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS)) {
+    Serial.println("✓ MQTT connecté !");
+    mqttClient.subscribe(TOPIC_CONFIG);
+    mqttClient.subscribe(TOPIC_STATUS);
+    return true;
+  } else {
+    Serial.print("✗ Échec connexion MQTT, rc=");
+    Serial.println(mqttClient.state());
+    return false;
   }
 }
 
 void setupMQTT(const char* ssid, const char* password) {
-  // Connexion WiFi STA
+  // Mode AP+STA pour que le point d'accès local fonctionne toujours
   WiFi.mode(WIFI_AP_STA);
-  WiFi.begin(ssid, password);
-
-  Serial.print("Connexion WiFi");
-  int timeout = 0;
-  while (WiFi.status() != WL_CONNECTED && timeout < 20) {
-    delay(500);
-    Serial.print(".");
-    timeout++;
+  
+  if (ssid != nullptr && strlen(ssid) > 0) {
+    Serial.print("WiFi STA : Tentative de connexion à ");
+    Serial.println(ssid);
+    WiFi.begin(ssid, password);
   }
 
-  if (WiFi.status() == WL_CONNECTED) {
-    Serial.println("\nWiFi connecté !");
-    Serial.print("IP STA : ");
-    Serial.println(WiFi.localIP());
-
-    // Setup MQTT
-    mqttClient.setServer(MQTT_SERVER, MQTT_PORT);
-    mqttClient.setCallback(onMQTTMessage);
-    connectMQTT();
-  } else {
-    Serial.println("\nWiFi non disponible — mode offline");
+  // Configuration de MQTT en utilisant les variables globales
+  if (mqttClient.connected()) {
+    mqttClient.disconnect();
   }
+  mqttClient.setServer(mqttServer.c_str(), mqttPort);
+  mqttClient.setCallback(onMQTTMessage);
+
+  // Réinitialiser les états
+  lastMqttRetry = 0;
+  lastWifiCheck = 0;
+  wasWifiConnected = false;
 }
 
 void handleMQTT() {
+  unsigned long now = millis();
+
   if (WiFi.status() == WL_CONNECTED) {
-    if (!mqttClient.connected()) {
-      connectMQTT();
+    if (!wasWifiConnected) {
+      Serial.println("\n✓ WiFi STA connecté !");
+      Serial.print("IP STA : ");
+      Serial.println(WiFi.localIP());
+      wasWifiConnected = true;
     }
-    mqttClient.loop();
+
+    if (!mqttClient.connected()) {
+      if (now - lastMqttRetry >= 5000 || lastMqttRetry == 0) {
+        lastMqttRetry = now;
+        connectMQTTNonBlocking();
+      }
+    } else {
+      mqttClient.loop();
+    }
+  } else {
+    if (wasWifiConnected) {
+      Serial.println("✗ WiFi STA déconnecté !");
+      wasWifiConnected = false;
+      lastMqttRetry = 0;
+    }
+    
+    // Alerte périodique (toutes les 15 secondes)
+    if (staSSID != "" && (now - lastWifiCheck >= 15000 || lastWifiCheck == 0)) {
+      lastWifiCheck = now;
+      Serial.println("En attente de connexion WiFi STA...");
+    }
   }
 }
 

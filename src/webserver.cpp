@@ -1,6 +1,8 @@
 #include "webserver.h"
 #include "config.h"
 #include "wifi_ap.h"
+#include "storage.h"
+#include "mqtt.h"
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
@@ -8,11 +10,10 @@
 #include <LittleFS.h>
 #include <Update.h>
 
+
 AsyncWebServer server(80);
 
 void setupServer() {
-  server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
-
   // GET /api/status
   server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* request) {
     StaticJsonDocument<256> doc;
@@ -32,6 +33,35 @@ void setupServer() {
     StaticJsonDocument<200> doc;
     doc["total"]   = totalPersonnes;
     doc["current"] = personnesActuelles;
+    doc["compteur"] = compteur;
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
+
+  // POST /api/count
+  server.on("/api/count", HTTP_POST,
+    [](AsyncWebServerRequest* request) {},
+    NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      StaticJsonDocument<200> doc;
+      deserializeJson(doc, data, len);
+      if (doc.containsKey("count")) {
+        int newVal = doc["count"].as<int>();
+        compteur = newVal;
+        totalPersonnes = newVal;
+        personnesActuelles = newVal;
+        storage_markDirty();
+      }
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+    }
+  );
+
+  // GET /api/config/module
+  server.on("/api/config/module", HTTP_GET, [](AsyncWebServerRequest* request) {
+    StaticJsonDocument<256> doc;
+    doc["role"] = moduleRole;
+    doc["masterMAC"] = masterMAC;
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
@@ -44,11 +74,22 @@ void setupServer() {
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       StaticJsonDocument<256> doc;
       deserializeJson(doc, data, len);
-      if (doc.containsKey("role"))      moduleRole = doc["role"].as<String>();
-      if (doc.containsKey("masterMAC")) masterMAC  = doc["masterMAC"].as<String>();
+      if (doc.containsKey("role")) moduleRole = doc["role"].as<String>(); if (doc.containsKey("type")) moduleRole = doc["type"].as<String>(); moduleRole.toLowerCase();
+      if (doc.containsKey("masterMAC")) masterMAC = doc["masterMAC"].as<String>(); if (doc.containsKey("macMaster")) masterMAC = doc["macMaster"].as<String>();
+      storage_saveConfig();
       request->send(200, "application/json", "{\"status\":\"ok\"}");
     }
   );
+
+  // GET /api/config/ap
+  server.on("/api/config/ap", HTTP_GET, [](AsyncWebServerRequest* request) {
+    StaticJsonDocument<256> doc;
+    doc["ssid"] = apSSID;
+    doc["password"] = apPassword;
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
 
   // POST /api/config/ap
   server.on("/api/config/ap", HTTP_POST,
@@ -60,6 +101,7 @@ void setupServer() {
       String newSSID = doc["ssid"]     | apSSID;
       String newPass = doc["password"] | apPassword;
       modifierAP(newSSID, newPass);
+      storage_saveConfig();
       request->send(200, "application/json", "{\"status\":\"ok\"}");
     }
   );
@@ -89,6 +131,8 @@ void setupServer() {
       }
       staSSID     = newSSID;
       staPassword = newPassword;
+      storage_saveConfig();
+      mqttTriggerSetup = true;
       request->send(200, "application/json", "{\"status\":\"ok\"}");
       Serial.println("WiFi STA mis à jour !");
     }
@@ -119,6 +163,8 @@ void setupServer() {
       }
       mqttServer = newServer;
       mqttPort   = newPort;
+      storage_saveConfig();
+      mqttTriggerSetup = true;
       request->send(200, "application/json", "{\"status\":\"ok\"}");
       Serial.println("MQTT mis à jour !");
     }
@@ -147,6 +193,9 @@ void setupServer() {
     }
   );
 
+  // Static files (catch-all)
+  server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
+
   // 404
   server.onNotFound([](AsyncWebServerRequest* request) {
     request->send(404, "application/json", "{\"error\":\"Not found\"}");
@@ -155,3 +204,4 @@ void setupServer() {
   server.begin();
   Serial.println("Serveur démarré !");
 }
+

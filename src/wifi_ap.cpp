@@ -1,9 +1,17 @@
-﻿#include "wifi_ap.h"
+#include "wifi_ap.h"
 #include "config.h"
 #include <WiFi.h>
 
 void setupAP() {
-  WiFi.mode(WIFI_AP);
+  // Si apSSID est vide ou a sa valeur par défaut, générer avec le suffixe MAC
+  if (apSSID == "SmartCount" || apSSID == "") {
+    String mac = WiFi.macAddress();
+    mac.replace(":", "");
+    String suffix = mac.substring(mac.length() - 3);
+    apSSID = "SmartCount-" + suffix;
+  }
+
+  WiFi.mode(WIFI_AP_STA);
   WiFi.softAP(apSSID.c_str(), apPassword.c_str());
   Serial.print("AP démarré : ");
   Serial.println(apSSID);
@@ -19,3 +27,4 @@ void modifierAP(String newSSID, String newPassword) {
   Serial.print("Nouveau SSID : ");
   Serial.println(apSSID);
 }
+
