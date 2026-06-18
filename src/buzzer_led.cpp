@@ -14,8 +14,6 @@ void buzzerLed_init() {
   digitalWrite(BUZZER_PIN, LOW);
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
-
 void buzzerLed_trigger() {
   s_active    = true;
   s_startTime = millis();
