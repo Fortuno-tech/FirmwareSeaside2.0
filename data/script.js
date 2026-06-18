@@ -1,5 +1,34 @@
-// ================= SIDEBAR =================
+let titleAnimationInterval = null;
+let titleAnimationTimeout = null;
 
+function animatePageTitle(text) {
+  const title = document.getElementById("pageTitle");
+
+  // arrêter l'ancienne animation
+  clearInterval(titleAnimationInterval);
+  clearTimeout(titleAnimationTimeout);
+
+  function play() {
+    let index = 0;
+    title.textContent = "";
+
+    titleAnimationInterval = setInterval(() => {
+      title.textContent += text.charAt(index);
+      index++;
+
+      if (index >= text.length) {
+        clearInterval(titleAnimationInterval);
+
+        // attendre puis recommencer
+        titleAnimationTimeout = setTimeout(play, 1800);
+      }
+    }, 120); // vitesse d'apparition
+  }
+
+  play();
+}
+
+// ================= SIDEBAR =================
 function toggleSidebar() {
   document.getElementById("sidebar").classList.toggle("active");
 }
@@ -7,7 +36,6 @@ function toggleSidebar() {
 // fermer sidebar mobile
 document.addEventListener("click", function (e) {
   let sidebar = document.getElementById("sidebar");
-
   let burger = document.querySelector(".burger");
 
   if (window.innerWidth <= 768) {
@@ -17,8 +45,32 @@ document.addEventListener("click", function (e) {
   }
 });
 
-// ================= NAVIGATION =================
+// ================= TOASTIFY FUNCTION =================
+function showToast(message, type = "success") {
+  const colors = {
+    success: "#2563eb",
+    error: "#dc2626",
+    warning: "#ea580c",
+    info: "#475569",
+  };
 
+  Toastify({
+    text: message,
+    duration: 3000,
+    gravity: "top",
+    position: "right",
+    close: true,
+    stopOnFocus: true,
+    style: {
+      background: colors[type],
+      color: "#fff",
+      borderRadius: "12px",
+      boxShadow: "0 10px 25px rgba(0,0,0,.15)",
+    },
+  }).showToast();
+}
+
+// ================= NAVIGATION =================
 function showPage(page, element) {
   // pages
   document
@@ -37,21 +89,31 @@ function showPage(page, element) {
   // title
   let title = document.getElementById("pageTitle");
 
-  if (page === "dashboard") {
-    title.innerText = "Dashboard";
+  let pageTitle = "";
+
+  switch (page) {
+    case "dashboard":
+      pageTitle = "Dashboard";
+      break;
+
+    case "reseaux":
+      pageTitle = "Réseaux";
+      break;
+
+    case "module":
+      pageTitle = "Module";
+      break;
+
+    case "licence":
+      pageTitle = "Licence";
+      break;
+
+    case "parametre":
+      pageTitle = "Paramètre";
+      break;
   }
 
-  if (page === "reseaux") {
-    title.innerText = "Réseaux";
-  }
-
-  if (page === "module") {
-    title.innerText = "Module";
-  }
-
-  if (page === "parametre") {
-    title.innerText = "Paramètre";
-  }
+  animatePageTitle(pageTitle);
 
   // mobile
   if (window.innerWidth <= 768) {
@@ -60,7 +122,6 @@ function showPage(page, element) {
 }
 
 // ================= PASSWORD MODAL =================
-
 let currentParamElement = null;
 
 function openPasswordModal(element) {
@@ -72,17 +133,7 @@ function openPasswordModal(element) {
   }
 
   document.getElementById("passwordModal").classList.add("active");
-
   document.getElementById("adminPassword").value = "";
-
-  document.getElementById("passwordError").innerText = "";
-
-  currentParamElement = element;
-
-  document.getElementById("passwordModal").classList.add("active");
-
-  document.getElementById("adminPassword").value = "";
-
   document.getElementById("passwordError").innerText = "";
 
   setTimeout(() => {
@@ -104,15 +155,11 @@ function confirmPassword() {
   if (password === "1112") {
     document.getElementById("passwordModal").classList.remove("active");
 
-    Swal.fire({
-      icon: "success",
-      title: "Accès autorisé",
-      text: "Bienvenue dans les paramètres",
-      confirmButtonText: "Continuer",
-      confirmButtonColor: "#2563eb",
-    }).then(() => {
+    showToast("Accès autorisé", "success");
+
+    setTimeout(() => {
       showPage("parametre", currentParamElement);
-    });
+    }, 400);
 
     return;
   }
@@ -129,187 +176,64 @@ document
     }
   });
 
-// ================= RESEAUX =================
+// ================= WEBSOCKET (AJOUTÉ DEPUIS script_farany) =================
+var gateway = "ws://" + window.location.hostname + "/ws";
+var websocket;
 
-function changeNetworkMode() {
-  let mode = document.getElementById("modeNet").value;
+function initWebSocket() {
+    console.log("Tentative de connexion WebSocket...");
+    websocket = new WebSocket(gateway);
+    websocket.onopen = onOpen;
+    websocket.onclose = onClose;
+    websocket.onmessage = onMessage;
+}
 
-  let area = document.getElementById("networkArea");
+function onOpen(event) {
+    console.log("Connexion WebSocket établie");
+}
 
-  // AP
-  if (mode === "ap") {
-    area.innerHTML = `
+function onClose(event) {
+    console.log("Connexion WebSocket fermée");
+    setTimeout(initWebSocket, 2000);
+}
 
-      <div>
-
-        <h3 style="margin:25px 0 20px 0;">
-          <i class="bi bi-router"></i>
-          Gestion Point d'accès
-        </h3>
-
-        <div class="input-group">
-
-          <label>
-            <i class="bi bi-wifi"></i>
-            Nom Point d'accès
-          </label>
-
-          <input
-            type="text"
-            placeholder="ESP32-NETWORK"
-            minlength="4"
-            maxlength="20"
-            required
-          >
-
-        </div>
-
-        <div class="input-group">
-
-  <label>
-    <i class="bi bi-lock-fill"></i>
-    Mot de passe
-  </label>
-
-  <div class="password-group">
-    <input
-      type="password"
-      id="apPassword"
-      placeholder="********"
-      minlength="8"
-      maxlength="20"
-      required
-    >
-
-    <i
-      class="bi bi-eye"
-      onclick="togglePassword('apPassword', this)"
-    ></i>
-  </div>
-
-</div>
-
-        <button class="btn" type="submit">
-          <i class="bi bi-check-circle"></i>
-          Confirmer
-        </button>
-
-      </div>
-
-    `;
-  }
-
-  // ONLINE
-  if (mode === "online") {
-    area.innerHTML = `
-
-      <div>
-
-        <h3 style="margin:25px 0 20px 0;">
-          <i class="bi bi-globe"></i>
-          Mode En Ligne
-        </h3>
-
-        <div class="input-group">
-
-          <label>
-            <i class="bi bi-router"></i>
-            SSID WiFi
-          </label>
-
-          <input
-            type="text"
-            placeholder="Nom WiFi"
-            minlength="4"
-            maxlength="20"
-            required
-          >
-
-        </div>
-
-        <div class="input-group">
-
-  <label>
-    <i class="bi bi-lock-fill"></i>
-    Mot de passe
-  </label>
-
-  <div class="password-group">
-    <input
-      type="password"
-      id="wifiPassword"
-      placeholder="********"
-      minlength="8"
-      maxlength="20"
-      required
-    >
-
-    <i
-      class="bi bi-eye"
-      onclick="togglePassword('wifiPassword', this)"
-    ></i>
-  </div>
-
-</div>
-
-        <button class="btn" type="submit">
-          <i class="bi bi-check-circle"></i>
-          Confirmer
-        </button>
-
-      </div>
-
-    `;
-  }
+function onMessage(event) {
+    console.log("Message WebSocket reçu:", event.data);
+    if (document.getElementById('passageCount')) {
+        document.getElementById('passageCount').innerText = event.data;
+    }
 }
 
 // ================= MAC VALIDATION =================
-
 function isValidMAC(mac) {
   let regex = /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/;
-
   return regex.test(mac);
 }
 
 // ================= MODULE =================
-
 document.getElementById("moduleForm").addEventListener("submit", function (e) {
   e.preventDefault();
 
   let mac1 = document.getElementById("mac1").value.trim();
-
   let mac2 = document.getElementById("mac2").value.trim();
-
   let type = document.getElementById("typeModule").value;
-
   let typeEntree = document.getElementById("typeEntree").value;
 
   if (!isValidMAC(mac1)) {
-    Swal.fire({
-      icon: "error",
-      title: "Adresse MAC invalide",
-      text: "Veuillez respecter le format AA:BB:CC:DD:EE:FF",
-    });
+    showToast("Adresse MAC invalide (AA:BB:CC:DD:EE:FF)", "error");
     return;
   }
 
   if (!isValidMAC(mac2)) {
-    Swal.fire({
-      icon: "error",
-      title: "Adresse MAC invalide",
-      text: "Veuillez vérifier l'adresse MAC du module associé",
-    });
+    showToast("Veuillez vérifier l'adresse MAC du module associé", "error");
     return;
   }
 
   if (typeEntree === "") {
-    Swal.fire({
-      icon: "warning",
-      title: "Choix requis",
-      text: "Veuillez sélectionner un type d'entrée",
-    });
+    showToast("Veuillez sélectionner un type d'entrée", "warning");
     return;
   }
+
   const data = {
     type: type,
     macMaster: mac1,
@@ -317,7 +241,7 @@ document.getElementById("moduleForm").addEventListener("submit", function (e) {
     typeE: typeEntree,
   };
 
-  fetch("http://localhost:3000/module", {
+  fetch("/api/config/module", {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -326,24 +250,14 @@ document.getElementById("moduleForm").addEventListener("submit", function (e) {
   })
     .then((response) => response.json())
     .then((result) => {
-      Swal.fire({
-        icon: "success",
-        title: "Module ajouté",
-        text: result.message || "Succès",
-      });
+      showToast(result.message || "Module configuré avec succès", "success");
     })
     .catch((error) => {
-      Swal.fire({
-        icon: "error",
-        title: "Erreur",
-        text: error.message,
-      });
+      showToast(error.message, "error");
     });
 
   let card = document.createElement("div");
-
   card.className = "module-card";
-
   card.innerHTML = `
   <h4>
     <i class="bi bi-hdd-network"></i>
@@ -372,140 +286,272 @@ document.getElementById("moduleForm").addEventListener("submit", function (e) {
 `;
 
   document.getElementById("moduleList").appendChild(card);
-
   this.reset();
 });
 
-// ================= PASSAGE =================
+// ================= LOAD MODULE CONFIG (AJOUTÉ DEPUIS script_farany) =================
+function loadModuleConfig() {
+  fetch("/api/config/module")
+    .then(res => res.json())
+    .then(data => {
+      if (data.role) {
+        document.getElementById("typeModule").value = data.role.charAt(0).toUpperCase() + data.role.slice(1);
+      }
+      if (data.masterMAC) {
+        document.getElementById("mac1").value = data.masterMAC;
+      }
+    })
+    .catch(err => console.error("Erreur module config fetch :", err));
+}
 
-let passage = 50;
-
+// ================= PASSAGE (AMÉLIORÉ DEPUIS script_farany) =================
 function incrementPassage() {
-  passage++;
-
-  document.getElementById("passageCount").innerText = passage;
+  let currentVal = parseInt(document.getElementById("passageCount").innerText) || 0;
+  let newVal = currentVal + 1;
+  updateCountOnServer(newVal);
 }
 
 function decrementPassage() {
-  if (passage > 0) {
-    passage--;
+  let currentVal = parseInt(document.getElementById("passageCount").innerText) || 0;
+  if (currentVal > 0) {
+    let newVal = currentVal - 1;
+    updateCountOnServer(newVal);
+  }
+}
 
-    document.getElementById("passageCount").innerText = passage;
+function updateCountOnServer(val) {
+  document.getElementById("passageCount").innerText = val;
+  fetch("/api/count", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ count: val })
+  })
+    .then(res => res.json())
+    .then(data => {
+      console.log("Compteur mis à jour sur l'ESP32 :", val);
+    })
+    .catch(err => console.error("Erreur de mise à jour du compteur :", err));
+}
+
+// ================= RESEAUX =================
+function changeNetworkMode() {
+  let mode = document.getElementById("modeNet").value;
+  let area = document.getElementById("networkArea");
+
+  // AP
+  if (mode === "ap") {
+    area.innerHTML = `
+  <div>
+    <h3 style="margin:25px 0 20px 0;">
+      <i class="bi bi-router"></i> 
+      Gestion Point d'accès
+    </h3>
+    <div class="input-group">
+      <label>
+      <i class="bi bi-wifi"></i> 
+        Nom Point d'accès
+      </label>
+      <input type="text" id="apSSIDInput" placeholder="ESP32-NETWORK" minlength="4" maxlength="20" required>
+    </div>
+    <div class="input-group">
+      <label>
+        <i class="bi bi-lock-fill"></i>
+        Mot de passe</label>
+        <div class="password-group">
+          <input type="password" id="apPassword" placeholder="********" minlength="8" maxlength="20" required>
+            <i class="bi bi-eye" onclick="togglePassword('apPassword', this)"></i>
+        </div>
+    </div>
+    <button class="btn" type="submit" onclick="submit_reseau(event)">
+      <i class="bi bi-check-circle"></i>
+      Confirmer
+      </button>
+    </div>`;
+
+    // Charger et pré-remplir les paramètres AP actuels
+    fetch("/api/config/ap")
+      .then((res) => res.json())
+      .then((data) => {
+        document.getElementById("apSSIDInput").value = data.ssid || "";
+        document.getElementById("apPassword").value = data.password || "";
+      })
+      .catch((err) => console.error("Erreur AP fetch :", err));
+  }
+
+  // ONLINE
+  if (mode === "online") {
+    area.innerHTML = `
+    <div>
+      <h3 style="margin:25px 0 20px 0;">
+      <i class="bi bi-globe"></i>
+      Mode En Ligne
+      </h3>
+      <div class="input-group">
+        <label>
+        <i class="bi bi-router"></i>
+        SSID WiFi
+        </label>
+        <input type="text" id="wifiSSIDInput" placeholder="Nom WiFi" minlength="4" maxlength="20" required>
+      </div>
+      <div class="input-group">
+        <label>
+        <i class="bi bi-lock-fill"></i>
+        Mot de passe
+        </label>
+        <div class="password-group">
+          <input type="password" id="wifiPassword" placeholder="********" minlength="8" maxlength="20" required>
+          <i class="bi bi-eye" onclick="togglePassword('wifiPassword', this)"></i>
+        </div>
+      </div>
+    
+      <h3 style="margin:25px 0 20px 0;">
+        <i class="bi bi-broadcast"></i>
+        Serveur MQTT Mosquitto
+      </h3>
+      <div class="input-group">
+        <label>
+        <i class="bi bi-server"></i>
+        Adresse IP du Broker
+        </label>
+        <input type="text" id="mqttServerInput" placeholder="192.168.1.2" required>
+      </div>
+      <div class="input-group">
+        <label>
+        <i class="bi bi-signpost-split"></i>
+        Port du Broker
+        </label>
+        <input type="number" id="mqttPortInput" placeholder="1883" required>
+      </div>
+      
+      <button class="btn" type="submit" onclick="submit_reseau(event)">
+      <i class="bi bi-check-circle"></i>
+      Confirmer
+      </button>
+    </div>`;
+    // Charger et pré-remplir les paramètres WiFi STA et MQTT actuels
+    Promise.all([
+      fetch("/api/wifi").then((res) => res.json()),
+      fetch("/api/mqtt").then((res) => res.json()),
+    ])
+      .then(([wifiData, mqttData]) => {
+        document.getElementById("wifiSSIDInput").value = wifiData.ssid || "";
+        document.getElementById("wifiPassword").value = wifiData.password || "";
+        document.getElementById("mqttServerInput").value =
+          mqttData.server || "192.168.1.2";
+        document.getElementById("mqttPortInput").value = mqttData.port || 1883;
+      })
+      .catch((err) => console.error("Erreur WiFi/MQTT fetch :", err));
   }
 }
 
 // ================= RESEAUX SUBMIT =================
-
 function submit_reseau(event) {
   event.preventDefault();
 
   let mode = document.getElementById("modeNet").value;
 
-  let area = document.getElementById("networkArea");
+  if (mode === "ap") {
+    let ssid = document.getElementById("apSSIDInput").value.trim();
+    let password = document.getElementById("apPassword").value.trim();
 
-  let inputs = area.querySelectorAll("input");
+    if (ssid === "" || password === "") {
+      showToast("Veuillez remplir tous les champs", "warning");
+      return;
+    }
 
-  if (inputs.length < 2) {
-    Swal.fire({
-      icon: "warning",
-      title: "Formulaire incomplet",
-      text: "Veuillez remplir tous les champs",
-    });
-    return;
-  }
+    if (ssid.length < 4 || ssid.length > 20) {
+      showToast("Le nom doit contenir entre 4 et 20 caractères", "warning");
+      return;
+    }
 
-  let ssid = inputs[0].value.trim();
+    if (password.length < 8 || password.length > 20) {
+      showToast("Le mot de passe doit contenir entre 8 et 20 caractères", "warning");
+      return;
+    }
 
-  let password = inputs[1].value.trim();
+    const data = { ssid, password };
 
-  if (ssid.length < 4 || ssid.length > 20) {
-    Swal.fire({
-      icon: "warning",
-      title: "SSID invalide",
-      text: "Le nom doit contenir entre 4 et 20 caractères",
-    });
-
-    return;
-  }
-
-  if (password.length < 8 || password.length > 20) {
-    Swal.fire({
-      icon: "warning",
-      title: "Mot de passe invalide",
-      text: "Le mot de passe doit contenir entre 8 et 20 caractères",
-    });
-
-    return;
-  }
-
-  const data = {
-    mode: mode,
-    ssid: ssid,
-    password: password,
-  };
-
-  fetch("http://localhost:3000/reseau", {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify(data),
-  })
-    .then((response) => response.json())
-    .then((result) => {
-      Swal.fire({
-        icon: "success",
-        title: "Configuration enregistrée",
-        text: result.message || "Succès",
-      });
+    fetch("/api/config/ap", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify(data),
     })
-    .catch((error) => {
-      Swal.fire({
-        icon: "error",
-        title: "Erreur",
-        text: error.message,
+      .then((response) => response.json())
+      .then((result) => {
+        showToast(result.message || "Configuration AP enregistrée", "success");
+      })
+      .catch((error) => {
+        showToast(error.message, "error");
       });
-    });
+  } else if (mode === "online") {
+    let ssid = document.getElementById("wifiSSIDInput").value.trim();
+    let password = document.getElementById("wifiPassword").value.trim();
+    let server = document.getElementById("mqttServerInput").value.trim();
+    let port = parseInt(document.getElementById("mqttPortInput").value) || 1883;
 
-  inputs.forEach((input) => {
-    input.value = "";
-  });
+    if (ssid === "" || password === "" || server === "") {
+      showToast("Veuillez remplir tous les champs", "warning");
+      return;
+    }
+
+    if (ssid.length < 4 || ssid.length > 20) {
+      showToast("Le nom WiFi doit contenir entre 4 et 20 caractères", "warning");
+      return;
+    }
+
+    if (password.length < 8 || password.length > 20) {
+      showToast("Le mot de passe WiFi doit contenir entre 8 et 20 caractères", "warning");
+      return;
+    }
+
+    fetch("/api/wifi", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ssid, password })
+    })
+      .then(resWifi => {
+        if (!resWifi.ok) throw new Error("Échec de la configuration WiFi");
+        return fetch("/api/mqtt", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ server, port })
+        });
+      })
+      .then(resMqtt => {
+        if (!resMqtt.ok) throw new Error("Échec de la configuration MQTT");
+        showToast("Configuration WiFi & MQTT enregistrée avec succès !", "success");
+      })
+      .catch(err => showToast(err.message, "error"));
+  }
 }
 
 // ================= FIRMWARE =================
-
 function changeFirmwareMode() {
   let mode = document.getElementById("firmwareMode").value;
-
   let area = document.getElementById("firmwareArea");
 
   // ================= HORS LIGNE =================
   if (mode === "offline") {
     area.innerHTML = `
-
       <div>
-
         <h3 style="margin:25px 0 20px 0;">
           <i class="bi bi-usb-drive"></i>
           Mise à jour Hors Ligne
         </h3>
-
         <div class="input-group">
-
           <label>
             <i class="bi bi-file-earmark-arrow-up"></i>
             Sélectionner Firmware
           </label>
-
           <input
             type="file"
             id="firmwareFile"
             accept=".bin"
             required
           >
-
         </div>
-
         <button
           class="btn"
           type="button"
@@ -514,60 +560,42 @@ function changeFirmwareMode() {
           <i class="bi bi-upload"></i>
           Téléverser Firmware
         </button>
-
       </div>
-
     `;
   }
 
   // ================= EN LIGNE =================
   if (mode === "online") {
     area.innerHTML = `
-
       <div>
-
         <h3 style="margin:25px 0 20px 0;">
           <i class="bi bi-cloud-arrow-down"></i>
           Mise à jour En Ligne
         </h3>
-
         <div class="input-group">
-
           <label>
             <i class="bi bi-hdd-network"></i>
             Choisir le module
           </label>
-
           <select id="onlineModule">
-
             <option>Module Master</option>
-
             <option>Module Slave 1</option>
-
             <option>Module Slave 2</option>
-
             <option>Module Slave 3</option>
-
           </select>
-
         </div>
-
         <div class="input-group">
-
           <label>
             <i class="bi bi-link-45deg"></i>
             URL Firmware
           </label>
-
           <input
             type="url"
             id="firmwareUrl"
             placeholder="https://example.com/firmware.bin"
             required
           >
-
         </div>
-
         <button
           class="btn"
           type="button"
@@ -576,99 +604,58 @@ function changeFirmwareMode() {
           <i class="bi bi-cloud-upload"></i>
           Télécharger et Téléverser
         </button>
-
       </div>
-
     `;
   }
 }
 
 // ================= UPLOAD OFFLINE =================
-
 function uploadOfflineFirmware() {
   let file = document.getElementById("firmwareFile").files[0];
 
   if (!file) {
-    Swal.fire({
-      icon: "warning",
-      title: "Firmware manquant",
-      text: "Veuillez sélectionner un fichier .bin",
-    });
+    showToast("Veuillez sélectionner un fichier .bin", "warning");
     return;
   }
 
   // vérification extension
   if (!file.name.endsWith(".bin")) {
-    Swal.fire({
-      icon: "error",
-      title: "Fichier invalide",
-      text: "Seuls les fichiers .bin sont acceptés",
-    });
+    showToast("Seuls les fichiers .bin sont acceptés", "error");
     return;
   }
-  const data = {
-    module: module,
-    firmwareUrl: url,
-  };
 
   let formData = new FormData();
-
   formData.append("firmware", file);
 
-  fetch("http://localhost:3000/update-offline", {
+  fetch("/update", {
     method: "POST",
     body: formData,
   })
     .then((response) => response.json())
     .then((result) => {
-      Swal.fire({
-        icon: "success",
-        title: "Firmware envoyé",
-        text: result.message,
-      });
+      showToast(result.message || "Firmware envoyé avec succès", "success");
     })
     .catch((error) => {
-      Swal.fire({
-        icon: "error",
-        title: "Erreur",
-        text: error.message,
-      });
+      showToast(error.message, "error");
     });
-
-  console.log("Firmware sélectionné :", file.name);
-
-  Swal.fire({
-    icon: "success",
-    title: "Téléversement réussi",
-    text: "Le firmware a été envoyé avec succès",
-  });
 }
 
 // ================= UPLOAD ONLINE =================
-
 function uploadOnlineFirmware() {
   let module = document.getElementById("onlineModule").value;
-
   let url = document.getElementById("firmwareUrl").value.trim();
 
   if (url === "") {
-    Swal.fire({
-      icon: "warning",
-      title: "URL manquante",
-      text: "Veuillez saisir l'adresse du firmware",
-    });
+    showToast("Veuillez saisir l'adresse du firmware", "warning");
     return;
   }
 
   // simple validation
   if (!url.startsWith("http://") && !url.startsWith("https://")) {
-    Swal.fire({
-      icon: "error",
-      title: "URL invalide",
-      text: "L'adresse doit commencer par http:// ou https://",
-    });
+    showToast("L'adresse doit commencer par http:// ou https://", "error");
     return;
   }
+
   const data = {
     module: module,
     firmwareUrl: url,
@@ -683,36 +670,14 @@ function uploadOnlineFirmware() {
   })
     .then((response) => response.json())
     .then((result) => {
-      Swal.fire({
-        icon: "success",
-        title: "Mise à jour lancée",
-        text: result.message,
-      });
+      showToast(result.message || "Le téléchargement du firmware a démarré", "success");
     })
     .catch((error) => {
-      Swal.fire({
-        icon: "error",
-        title: "Erreur",
-        text: error.message,
-      });
+      showToast(error.message, "error");
     });
-
-  /*console.log("Module :", module);
-
-  console.log("Firmware URL :", url);*/
-
-  Swal.fire({
-    icon: "success",
-    title: "Mise à jour lancée",
-    text: "Le téléchargement du firmware a démarré",
-  });
 }
 
-// ================= DEFAULT FIRMWARE =================
-
-changeFirmwareMode();
 // ================= PARAMETRE SUB MENU =================
-
 function showSettingPage(pageId, element) {
   // cacher pages
   document.querySelectorAll(".setting-page").forEach((page) => {
@@ -730,20 +695,134 @@ function showSettingPage(pageId, element) {
   element.classList.add("active");
 }
 
+// ================= TOGGLE PASSWORD =================
 function togglePassword(inputId, icon) {
   let input = document.getElementById(inputId);
 
   if (input.type === "password") {
     input.type = "text";
-
     icon.classList.remove("bi-eye");
     icon.classList.add("bi-eye-slash");
   } else {
     input.type = "password";
-
     icon.classList.remove("bi-eye-slash");
     icon.classList.add("bi-eye");
   }
 }
 
-changeNetworkMode();
+// ================= LICENCE =================
+function randomPart(length) {
+  const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+  const random = new Uint32Array(length);
+  crypto.getRandomValues(random);
+  let text = "";
+  for (let i = 0; i < length; i++) {
+    text += chars[random[i] % chars.length];
+  }
+  return text;
+}
+
+function generateLicense() {
+  return `SMC-${new Date().getFullYear()}-${randomPart(4)}-${randomPart(4)}-${randomPart(4)}-${randomPart(4)}`;
+}
+
+function generateNewLicense() {
+  const licence = generateLicense();
+  document.getElementById("licenseCode").value = licence;
+  document.getElementById("licenseDate").value = new Date().toLocaleString();
+}
+
+function copyLicense() {
+  const licence = document.getElementById("licenseCode").value;
+
+  if (licence === "") {
+    showToast("Aucune licence générée", "warning");
+    return;
+  }
+
+  navigator.clipboard.writeText(licence);
+  showToast("Licence copiée", "success");
+}
+
+function sendLicense() {
+  const licence = document.getElementById("licenseCode").value;
+
+  if (licence === "") {
+    showToast("Générez une licence d'abord", "warning");
+    return;
+  }
+
+  fetch("http://localhost:3000/licence", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      licence: licence,
+      date: new Date().toISOString(),
+    }),
+  })
+    .then((r) => r.json())
+    .then((result) => {
+      showToast(result.message || "Licence envoyée", "success");
+    })
+    .catch((error) => {
+      showToast(error.message, "error");
+    });
+}
+
+// ================= DATA FETCHING (AJOUTÉ DEPUIS script_farany) =================
+function updateDeviceStatus() {
+  fetch('/api/status')
+    .then(res => res.json())
+    .then(data => {
+      // Si WebSocket n'est pas ouvert, on utilise les données du fetch
+      if ((!websocket || websocket.readyState !== WebSocket.OPEN) && document.getElementById('passageCount')) {
+        document.getElementById('passageCount').innerText = data.total || 0;
+      }
+      
+      if (document.getElementById('deviceMAC')) 
+        document.getElementById('deviceMAC').innerText = data.mac || "Inconnu";
+      if (document.getElementById('deviceRole')) 
+        document.getElementById('deviceRole').innerText = (data.role || "neutral").toUpperCase();
+      if (document.getElementById('deviceMode')) {
+        document.getElementById('deviceMode').innerText = data.connected ? "En ligne (STA + AP)" : "Hors ligne (AP)";
+      }
+
+      let dashMode = document.getElementById('dashMode');
+      if (dashMode) {
+        dashMode.innerText = data.connected ? "En ligne" : "Hors ligne";
+        let icon = dashMode.parentElement.nextElementSibling?.querySelector('i');
+        if (icon) {
+          if (data.connected) {
+            icon.className = "bi bi-wifi";
+            icon.parentElement.className = "card-icon green";
+          } else {
+            icon.className = "bi bi-wifi-off";
+            icon.parentElement.className = "card-icon red";
+          }
+        }
+      }
+    })
+    .catch(err => console.error('Status Error:', err));
+}
+
+// ================= INIT =================
+document.addEventListener("DOMContentLoaded", () => {
+  // Initialisation WebSocket (depuis script_farany)
+  initWebSocket();
+  
+  // Chargement de la configuration du module (depuis script_farany)
+  loadModuleConfig();
+  
+  // Initialisation des modes réseau et firmware
+  changeNetworkMode();
+  changeFirmwareMode();
+  
+  // Animation du titre
+  animatePageTitle("Dashboard");
+  
+  // Mise à jour périodique du statut (depuis script_farany)
+  setInterval(updateDeviceStatus, 5000);
+  updateDeviceStatus();
+});
