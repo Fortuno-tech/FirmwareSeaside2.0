@@ -1,9 +1,13 @@
-﻿#ifndef PROJECT_WEBSERVER_H
+#ifndef PROJECT_WEBSERVER_H
 #define PROJECT_WEBSERVER_H
 
 #include <ESPAsyncWebServer.h>
 
 extern AsyncWebServer server;
-void setupServer();
+extern AsyncWebSocket ws;
 
-#endif
+void setupServer();
+void webserver_broadcastCount(int val);
+
+#endif // PROJECT_WEBSERVER_H
+

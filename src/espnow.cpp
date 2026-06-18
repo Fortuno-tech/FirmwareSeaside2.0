@@ -1,5 +1,6 @@
 #include "espnow.h"
 #include "config.h"
+#include "webserver.h"
 #include <esp_now.h>
 #include <WiFi.h>
 // Structure des données échangées
@@ -31,6 +32,7 @@ void onDataReceived(const uint8_t* mac, const uint8_t* data, int len) {
   // Mise à  jour compteur global
   totalPersonnes     = dataReceived.count;
   personnesActuelles = dataReceived.count;
+  webserver_broadcastCount(totalPersonnes);
 }
 
 // Setup Master

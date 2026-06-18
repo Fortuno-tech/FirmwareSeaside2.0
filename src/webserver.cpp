@@ -12,8 +12,21 @@
 
 
 AsyncWebServer server(80);
+AsyncWebSocket ws("/ws");
 
 void setupServer() {
+  // Configurer le WebSocket
+  ws.onEvent([](AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len) {
+    if (type == WS_EVT_CONNECT) {
+      Serial.printf("WebSocket client #%u connecté\n", client->id());
+      int valToShow = (moduleRole == "master") ? totalPersonnes : compteur;
+      client->text(String(valToShow));
+    } else if (type == WS_EVT_DISCONNECT) {
+      Serial.printf("WebSocket client #%u déconnecté\n", client->id());
+    }
+  });
+  server.addHandler(&ws);
+
   // GET /api/status
   server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* request) {
     StaticJsonDocument<256> doc;
@@ -52,6 +65,7 @@ void setupServer() {
         totalPersonnes = newVal;
         personnesActuelles = newVal;
         storage_markDirty();
+        webserver_broadcastCount(newVal);
       }
       request->send(200, "application/json", "{\"status\":\"ok\"}");
     }
@@ -204,4 +218,9 @@ void setupServer() {
   server.begin();
   Serial.println("Serveur démarré !");
 }
+
+void webserver_broadcastCount(int val) {
+  ws.textAll(String(val));
+}
+
 

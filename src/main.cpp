@@ -12,39 +12,57 @@
 #include "mqtt.h"
 #include "ota.h"
 
-// â”€â”€â”€ Ã‰tat global de l'application â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//Etat app
 int                  compteur        = 0;
 static bool          objetDetecte    = false;
 static bool          displayEnabled  = true;
 static unsigned long lastActivityTime = 0;
 static unsigned long lastLoopTime    = 0;
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-// Callbacks boutons
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-
+//buttons
 static void onButtonPlus() {
   compteur++;
+  if (moduleRole == "master") {
+    totalPersonnes = compteur;
+    personnesActuelles = compteur;
+  }
   lastActivityTime = millis();
   storage_markDirty();
-  Serial.print("â†’ Bouton + | Compteur = ");
+  Serial.print("→ Bouton + | Compteur = ");
   Serial.println(compteur);
+
+  int valToShow = (moduleRole == "master") ? totalPersonnes : compteur;
+  webserver_broadcastCount(valToShow);
 }
 
 static void onButtonMinus() {
   if (compteur > 0) compteur--;
+  if (moduleRole == "master") {
+    totalPersonnes = compteur;
+    personnesActuelles = compteur;
+  }
   lastActivityTime = millis();
   storage_markDirty();
-  Serial.print("â†’ Bouton - | Compteur = ");
+  Serial.print("→ Bouton - | Compteur = ");
   Serial.println(compteur);
+
+  int valToShow = (moduleRole == "master") ? totalPersonnes : compteur;
+  webserver_broadcastCount(valToShow);
 }
 
 static void onButtonReset() {
   compteur = 0;
+  if (moduleRole == "master") {
+    totalPersonnes = 0;
+    personnesActuelles = 0;
+  }
   lastActivityTime = millis();
   storage_markDirty();
   buzzerLed_doubleBeep();
-  Serial.println("!!! BOUTON RESET - COMPTEUR REMIS Ã€ ZÃ‰RO !!!");
+  Serial.println("!!! BOUTON RESET - COMPTEUR REMIS À ZÉRO !!!");
+
+  int valToShow = (moduleRole == "master") ? totalPersonnes : compteur;
+  webserver_broadcastCount(valToShow);
 }
 
 static void onWake() {
@@ -52,32 +70,61 @@ static void onWake() {
   lastActivityTime = millis();
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 // Détection ultrason
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+// ─────────────────────────────────────────────────────────────────────────────
 
 static void handleUltrasonic() {
+  unsigned long now = millis();
+  static unsigned long lastSensorRead = 0;
+  static unsigned long lastDetectionTime = 0;
+
+  // Interroger le capteur toutes les 100ms max (pour éviter les échos parasites)
+  if (now - lastSensorRead < 100) {
+    return;
+  }
+  lastSensorRead = now;
+
   float distance = ultrasonic_readDistance();
 
   if (distance > 0 && distance < SEUIL) {
-    if (!objetDetecte) {
+    // Cooldown de 1.5s entre deux incrémentations (temps de passage d'une personne)
+    if (!objetDetecte && (now - lastDetectionTime >= 1500)) {
       compteur++;
       objetDetecte      = true;
-      lastActivityTime  = millis();
+      lastDetectionTime = now;
+      lastActivityTime  = now;
       displayEnabled    = true;
       storage_markDirty();
       buzzerLed_trigger();
-      Serial.print("â†’ Obstacle détecté ! Compteur = ");
+      Serial.print("→ Obstacle détecté ! Compteur = ");
       Serial.println(compteur);
+
+      if (moduleRole == "master") {
+        totalPersonnes     = compteur;
+        personnesActuelles = compteur;
+      }
+
+      int valToShow = (moduleRole == "master") ? totalPersonnes : compteur;
+      webserver_broadcastCount(valToShow);
     }
   } else {
-    objetDetecte = false;
+    // Hystérésis temporelle : l'obstacle doit être absent pendant 500ms d'affilée pour libérer le capteur
+    static unsigned long lastObstacleTime = 0;
+    if (objetDetecte) {
+      if (lastObstacleTime == 0) {
+        lastObstacleTime = now;
+      } else if (now - lastObstacleTime > 500) {
+        objetDetecte = false;
+        lastObstacleTime = 0;
+      }
+    } else {
+      lastObstacleTime = 0;
+    }
   }
 }
 
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 // setup / loop
-// â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 void setup() {
   Serial.begin(115200);
