@@ -19,6 +19,12 @@ static bool          displayEnabled  = true;
 static unsigned long lastActivityTime = 0;
 static unsigned long lastLoopTime    = 0;
 
+// FIX Bug 1 : initialiser lastDetectionTime à une valeur
+// qui garantit que le cooldown est "déjà écoulé" au démarrage,
+// mais on attend quand même que le capteur fasse une lecture valide.
+static unsigned long lastDetectionTime  = 0;
+static bool          bootGuardDone      = false;  // protège la 1ère lecture
+
 //buttons
 static void onButtonPlus() {
   compteur++;
@@ -70,55 +76,101 @@ static void onWake() {
   lastActivityTime = millis();
 }
 
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────────
 // Détection ultrason
-// ─────────────────────────────────────────────────────────────────────────────
+// ─────────────────────────────────────────────────────────────────────────────────
 
 static void handleUltrasonic() {
   unsigned long now = millis();
-  static unsigned long lastSensorRead = 0;
-  static unsigned long lastDetectionTime = 0;
+  static unsigned long lastSensorRead   = 0;
+  // FIX Bug 2 : lastObstacleTime déclarée ICI (scope fonction) et non dans le else
+  static unsigned long lastObstacleTime = 0;
 
-  // Interroger le capteur toutes les 100ms max (pour éviter les échos parasites)
-  if (now - lastSensorRead < 100) {
-    return;
-  }
+  // Interroger le capteur toutes les 100 ms (anti-échos parasites)
+  if (now - lastSensorRead < 100) return;
   lastSensorRead = now;
 
   float distance = ultrasonic_readDistance();
 
-  if (distance > 0 && distance < SEUIL) {
-    // Cooldown de 1.5s entre deux incrémentations (temps de passage d'une personne)
-    if (!objetDetecte && (now - lastDetectionTime >= 1500)) {
-      compteur++;
-      objetDetecte      = true;
-      lastDetectionTime = now;
-      lastActivityTime  = now;
-      displayEnabled    = true;
-      storage_markDirty();
-      buzzerLed_trigger();
-      Serial.print("→ Obstacle détecté ! Compteur = ");
-      Serial.println(compteur);
+  // FIX Bug 3 : timeout capteur (distance == 0.0) = pas d'écho reçu
+  // On traite ça comme "rien devant" (voie libre) plutôt que de l'ignorer.
+  // Cela évite de bloquer indefiniment objetDetecte=true si le capteur perd l'écho.
+  bool voibreLibre = (distance <= 0.0f || distance >= (float)seuil);
 
-      if (moduleRole == "master") {
-        totalPersonnes     = compteur;
-        personnesActuelles = compteur;
-      }
-
-      int valToShow = (moduleRole == "master") ? totalPersonnes : compteur;
-      webserver_broadcastCount(valToShow);
+  // FIX Bug 1 : protection démarrage
+  // On laisse passer 2 lectures valides avant d'activer la détection,
+  // pour ne pas comptabiliser un objet déjà présent au boot.
+  if (!bootGuardDone) {
+    static uint8_t bootReadCount = 0;
+    bootReadCount++;
+    if (bootReadCount >= 3) {
+      bootGuardDone    = true;
+      lastDetectionTime = now;   // cooldown réinitialisé proprement
+      Serial.printf("[SENSOR] Boot guard OK – seuil actif : %d cm\n", seuil);
+    } else {
+      Serial.printf("[SENSOR] Boot guard %d/3 – dist=%.1f cm\n", bootReadCount, distance);
     }
+    return;
+  }
+
+  // ─ Log de débogage périodique (toutes les 500 ms environ) ───────────────
+  static unsigned long lastLogTime = 0;
+  if (now - lastLogTime >= 500) {
+    lastLogTime = now;
+    Serial.printf("[SENSOR] dist=%.1f cm | seuil=%d cm | detecete=%d | cooldown=%lu ms restant\n",
+      distance, seuil, (int)objetDetecte,
+      (now - lastDetectionTime < 1500) ? (1500 - (now - lastDetectionTime)) : 0);
+  }
+
+  if (!voibreLibre) {
+    // ── Objet dans la zone de détection ──────────────────────────────
+
+    // FIX Bug 5 : réinitialiser lastObstacleTime dès que l'objet est détecté
+    // (sinon le timer d'hysterésis continue de tourner entre deux lectures)
+    lastObstacleTime = 0;
+
+    if (!objetDetecte) {
+      if (now - lastDetectionTime >= 1500) {
+        // ── PASSAGE VALIDÉ ────────────────────────────────────────────
+        compteur++;
+        objetDetecte      = true;
+        lastDetectionTime = now;
+        lastActivityTime  = now;
+        displayEnabled    = true;
+        storage_markDirty();
+        buzzerLed_trigger();
+
+        Serial.printf("\n>>> PASSAGE DÉTECTÉ ! dist=%.1f cm | seuil=%d cm | compteur=%d\n\n",
+          distance, seuil, compteur);
+
+        if (moduleRole == "master") {
+          totalPersonnes     = compteur;
+          personnesActuelles = compteur;
+        }
+        int valToShow = (moduleRole == "master") ? totalPersonnes : compteur;
+        webserver_broadcastCount(valToShow);
+
+      } else {
+        // FIX Bug 4 : log explicite quand le cooldown bloque
+        Serial.printf("[SENSOR] Passage ignoré (cooldown %lu ms restant)\n",
+          1500 - (now - lastDetectionTime));
+      }
+    }
+
   } else {
-    // Hystérésis temporelle : l'obstacle doit être absent pendant 500ms d'affilée pour libérer le capteur
-    static unsigned long lastObstacleTime = 0;
+    // ── Voie libre (ou timeout capteur) ──────────────────────────────
     if (objetDetecte) {
       if (lastObstacleTime == 0) {
+        // Début de la fenêtre d'hysterésis
         lastObstacleTime = now;
       } else if (now - lastObstacleTime > 500) {
-        objetDetecte = false;
+        // FIX Bug 2 : liburation propre avec log
+        Serial.printf("[SENSOR] Voie libérée après hysterésis 500 ms\n");
+        objetDetecte     = false;
         lastObstacleTime = 0;
       }
     } else {
+      // Pas d'objet, pas d'hysterésis en cours : reset du timer
       lastObstacleTime = 0;
     }
   }

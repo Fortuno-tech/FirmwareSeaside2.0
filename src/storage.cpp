@@ -82,7 +82,7 @@ bool storage_loadConfig() {
     return false;
   }
 
-  StaticJsonDocument<512> doc;
+  StaticJsonDocument<600> doc;
   DeserializationError error = deserializeJson(doc, file);
   file.close();
 
@@ -99,6 +99,10 @@ bool storage_loadConfig() {
   if (doc.containsKey("staPassword")) staPassword = doc["staPassword"].as<String>();
   if (doc.containsKey("mqttServer")) mqttServer = doc["mqttServer"].as<String>();
   if (doc.containsKey("mqttPort")) mqttPort = doc["mqttPort"].as<int>();
+  if (doc.containsKey("seuil")) {
+    int val = doc["seuil"].as<int>();
+    if (val >= SEUIL_MIN && val <= SEUIL_MAX) seuil = val;
+  }
 
   Serial.println("✓ Configuration chargée avec succès");
   return true;
@@ -111,7 +115,7 @@ void storage_saveConfig() {
     return;
   }
 
-  StaticJsonDocument<512> doc;
+  StaticJsonDocument<600> doc;
   doc["apSSID"] = apSSID;
   doc["apPassword"] = apPassword;
   doc["moduleRole"] = moduleRole;
@@ -120,6 +124,7 @@ void storage_saveConfig() {
   doc["staPassword"] = staPassword;
   doc["mqttServer"] = mqttServer;
   doc["mqttPort"] = mqttPort;
+  doc["seuil"] = seuil;
 
   if (serializeJson(doc, file) == 0) {
     Serial.println("✗ Erreur: échec de l'écriture dans config.json");

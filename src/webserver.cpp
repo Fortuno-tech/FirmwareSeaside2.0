@@ -27,32 +27,32 @@ void setupServer() {
   });
   server.addHandler(&ws);
 
-  // GET /api/status
+  // ─── GET /api/status ──────────────────────────────────────────────────────
   server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* request) {
     StaticJsonDocument<256> doc;
-    doc["total"]   = totalPersonnes;
-    doc["current"] = personnesActuelles;
-    doc["role"]    = moduleRole;
-    doc["ip"]      = WiFi.softAPIP().toString();
-    doc["mac"]     = WiFi.macAddress();
+    doc["total"]     = totalPersonnes;
+    doc["current"]   = personnesActuelles;
+    doc["role"]      = moduleRole;
+    doc["ip"]        = WiFi.softAPIP().toString();
+    doc["mac"]       = WiFi.macAddress();
     doc["connected"] = (WiFi.status() == WL_CONNECTED);
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
   });
 
-  // GET /api/count
+  // ─── GET /api/count ───────────────────────────────────────────────────────
   server.on("/api/count", HTTP_GET, [](AsyncWebServerRequest* request) {
     StaticJsonDocument<200> doc;
-    doc["total"]   = totalPersonnes;
-    doc["current"] = personnesActuelles;
+    doc["total"]    = totalPersonnes;
+    doc["current"]  = personnesActuelles;
     doc["compteur"] = compteur;
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
   });
 
-  // POST /api/count
+  // ─── POST /api/count ──────────────────────────────────────────────────────
   server.on("/api/count", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
     NULL,
@@ -61,8 +61,8 @@ void setupServer() {
       deserializeJson(doc, data, len);
       if (doc.containsKey("count")) {
         int newVal = doc["count"].as<int>();
-        compteur = newVal;
-        totalPersonnes = newVal;
+        compteur           = newVal;
+        totalPersonnes     = newVal;
         personnesActuelles = newVal;
         storage_markDirty();
         webserver_broadcastCount(newVal);
@@ -71,41 +71,44 @@ void setupServer() {
     }
   );
 
-  // GET /api/config/module
+  // ─── GET /api/config/module ───────────────────────────────────────────────
   server.on("/api/config/module", HTTP_GET, [](AsyncWebServerRequest* request) {
     StaticJsonDocument<256> doc;
-    doc["role"] = moduleRole;
+    doc["role"]      = moduleRole;
     doc["masterMAC"] = masterMAC;
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
   });
 
-  // POST /api/config/module
+  // ─── POST /api/config/module ──────────────────────────────────────────────
   server.on("/api/config/module", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
     NULL,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       StaticJsonDocument<256> doc;
       deserializeJson(doc, data, len);
-      if (doc.containsKey("role")) moduleRole = doc["role"].as<String>(); if (doc.containsKey("type")) moduleRole = doc["type"].as<String>(); moduleRole.toLowerCase();
-      if (doc.containsKey("masterMAC")) masterMAC = doc["masterMAC"].as<String>(); if (doc.containsKey("macMaster")) masterMAC = doc["macMaster"].as<String>();
+      if (doc.containsKey("role"))      moduleRole = doc["role"].as<String>();
+      if (doc.containsKey("type"))      moduleRole = doc["type"].as<String>();
+      moduleRole.toLowerCase();
+      if (doc.containsKey("masterMAC")) masterMAC = doc["masterMAC"].as<String>();
+      if (doc.containsKey("macMaster")) masterMAC = doc["macMaster"].as<String>();
       storage_saveConfig();
       request->send(200, "application/json", "{\"status\":\"ok\"}");
     }
   );
 
-  // GET /api/config/ap
+  // ─── GET /api/config/ap ───────────────────────────────────────────────────
   server.on("/api/config/ap", HTTP_GET, [](AsyncWebServerRequest* request) {
     StaticJsonDocument<256> doc;
-    doc["ssid"] = apSSID;
+    doc["ssid"]     = apSSID;
     doc["password"] = apPassword;
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
   });
 
-  // POST /api/config/ap
+  // ─── POST /api/config/ap ──────────────────────────────────────────────────
   server.on("/api/config/ap", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
     NULL,
@@ -120,7 +123,7 @@ void setupServer() {
     }
   );
 
-  // GET /api/wifi
+  // ─── GET /api/wifi ────────────────────────────────────────────────────────
   server.on("/api/wifi", HTTP_GET, [](AsyncWebServerRequest* request) {
     StaticJsonDocument<200> doc;
     doc["ssid"]     = staSSID;
@@ -130,7 +133,7 @@ void setupServer() {
     request->send(200, "application/json", response);
   });
 
-  // POST /api/wifi
+  // ─── POST /api/wifi ───────────────────────────────────────────────────────
   server.on("/api/wifi", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
     NULL,
@@ -152,7 +155,7 @@ void setupServer() {
     }
   );
 
-  // GET /api/mqtt
+  // ─── GET /api/mqtt ────────────────────────────────────────────────────────
   server.on("/api/mqtt", HTTP_GET, [](AsyncWebServerRequest* request) {
     StaticJsonDocument<200> doc;
     doc["server"] = mqttServer;
@@ -162,7 +165,7 @@ void setupServer() {
     request->send(200, "application/json", response);
   });
 
-  // POST /api/mqtt
+  // ─── POST /api/mqtt ───────────────────────────────────────────────────────
   server.on("/api/mqtt", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
     NULL,
@@ -184,7 +187,43 @@ void setupServer() {
     }
   );
 
-  // OTA Upload
+  // ─── GET /api/config/sensor ───────────────────────────────────────────────
+  // Retourne le seuil de détection actuel et ses limites
+  server.on("/api/config/sensor", HTTP_GET, [](AsyncWebServerRequest* request) {
+    StaticJsonDocument<128> doc;
+    doc["seuil"]    = seuil;
+    doc["seuilMin"] = SEUIL_MIN;
+    doc["seuilMax"] = SEUIL_MAX;
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
+
+  // ─── POST /api/config/sensor ──────────────────────────────────────────────
+  // Modifie le seuil de détection en temps réel et le sauvegarde en flash
+  server.on("/api/config/sensor", HTTP_POST,
+    [](AsyncWebServerRequest* request) {},
+    NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      StaticJsonDocument<128> doc;
+      deserializeJson(doc, data, len);
+      if (!doc.containsKey("seuil")) {
+        request->send(400, "application/json", "{\"error\":\"Champ seuil manquant\"}");
+        return;
+      }
+      int newSeuil = doc["seuil"].as<int>();
+      if (newSeuil < SEUIL_MIN || newSeuil > SEUIL_MAX) {
+        request->send(400, "application/json", "{\"error\":\"Valeur hors limites (10-500 cm)\"}");
+        return;
+      }
+      seuil = newSeuil;
+      storage_saveConfig();
+      Serial.printf("✓ Seuil de détection mis à jour : %d cm\n", seuil);
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+    }
+  );
+
+  // ─── OTA Upload ───────────────────────────────────────────────────────────
   server.on("/update", HTTP_POST,
     [](AsyncWebServerRequest* request) {
       bool success = !Update.hasError();
@@ -194,7 +233,7 @@ void setupServer() {
         ESP.restart();
       }
     },
-    [](AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {  
+    [](AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {
       if (index == 0) {
         Serial.printf("OTA Start: %s\n", filename.c_str());
         Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000);
@@ -207,10 +246,10 @@ void setupServer() {
     }
   );
 
-  // Static files (catch-all)
+  // ─── Fichiers statiques ───────────────────────────────────────────────────
   server.serveStatic("/", LittleFS, "/").setDefaultFile("index.html");
 
-  // 404
+  // ─── 404 ──────────────────────────────────────────────────────────────────
   server.onNotFound([](AsyncWebServerRequest* request) {
     request->send(404, "application/json", "{\"error\":\"Not found\"}");
   });
@@ -222,5 +261,3 @@ void setupServer() {
 void webserver_broadcastCount(int val) {
   ws.textAll(String(val));
 }
-
-

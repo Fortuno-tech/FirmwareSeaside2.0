@@ -11,7 +11,9 @@
 // â”€â”€â”€ Capteur ultrason â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #define TRIG_PIN   14
 #define ECHO_PIN   32
-#define SEUIL      80       // Distance seuil en cm
+#define SEUIL_DEFAULT  80    // Valeur par défaut du seuil (cm)
+#define SEUIL_MIN       10   // Seuil minimum autorisé (cm)
+#define SEUIL_MAX      500   // Seuil maximum autorisé (cm)
 
 // â”€â”€â”€ Buzzer et LED â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 #define BUZZER_PIN 5
@@ -51,6 +53,7 @@ extern String staPassword;
 extern String mqttServer;
 extern int mqttPort;
 extern int compteur;
+extern int seuil;
 extern bool mqttTriggerSetup;
 
 #endif // CONFIG_H

@@ -18,3 +18,6 @@ String mqttServer = "192.168.1.2";
 int mqttPort      = 1883;
 
 bool mqttTriggerSetup = false;
+
+// Seuil de détection capteur ultrason (cm)
+int seuil = SEUIL_DEFAULT;
