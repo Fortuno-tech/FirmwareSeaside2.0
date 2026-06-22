@@ -422,6 +422,23 @@ function changeNetworkMode() {
         </label>
         <input type="number" id="mqttPortInput" placeholder="1883" required>
       </div>
+      <div class="input-group">
+        <label>
+        <i class="bi bi-person-fill"></i>
+        Utilisateur (optionnel)
+        </label>
+        <input type="text" id="mqttUserInput" placeholder="Ex: mon_user">
+      </div>
+      <div class="input-group">
+        <label>
+        <i class="bi bi-lock-fill"></i>
+        Mot de passe (optionnel)
+        </label>
+        <div class="password-group">
+          <input type="password" id="mqttPasswordInput" placeholder="********">
+          <i class="bi bi-eye" onclick="togglePassword('mqttPasswordInput', this)"></i>
+        </div>
+      </div>
       
       <button class="btn" type="submit" onclick="submit_reseau(event)">
       <i class="bi bi-check-circle"></i>
@@ -439,6 +456,8 @@ function changeNetworkMode() {
         document.getElementById("mqttServerInput").value =
           mqttData.server || "192.168.1.2";
         document.getElementById("mqttPortInput").value = mqttData.port || 1883;
+        document.getElementById("mqttUserInput").value = mqttData.user || "";
+        document.getElementById("mqttPasswordInput").value = mqttData.password || "";
       })
       .catch((err) => console.error("Erreur WiFi/MQTT fetch :", err));
   }
@@ -490,6 +509,8 @@ function submit_reseau(event) {
     let password = document.getElementById("wifiPassword").value.trim();
     let server = document.getElementById("mqttServerInput").value.trim();
     let port = parseInt(document.getElementById("mqttPortInput").value) || 1883;
+    let user = document.getElementById("mqttUserInput").value.trim();
+    let pass = document.getElementById("mqttPasswordInput").value.trim();
 
     if (ssid === "" || password === "" || server === "") {
       showToast("Veuillez remplir tous les champs", "warning");
@@ -516,7 +537,7 @@ function submit_reseau(event) {
         return fetch("/api/mqtt", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ server, port })
+          body: JSON.stringify({ server, port, user, password: pass })
         });
       })
       .then(resMqtt => {

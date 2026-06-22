@@ -16,6 +16,8 @@ String staPassword = "";
 // MQTT
 String mqttServer = "192.168.1.2";
 int mqttPort      = 1883;
+String mqttUser     = "";
+String mqttPassword = "";
 
 bool mqttTriggerSetup = false;
 

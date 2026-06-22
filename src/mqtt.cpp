@@ -52,7 +52,17 @@ bool connectMQTTNonBlocking() {
   String clientId = "Seaside2-Master-" + WiFi.macAddress();
   clientId.replace(":", "");
 
-  if (mqttClient.connect(clientId.c_str(), MQTT_USER, MQTT_PASS)) {
+  bool connected = false;
+  if (mqttUser.length() > 0) {
+    Serial.print("Utilisation de l'utilisateur : ");
+    Serial.println(mqttUser);
+    connected = mqttClient.connect(clientId.c_str(), mqttUser.c_str(), mqttPassword.c_str());
+  } else {
+    Serial.println("Connexion anonyme (sans identifiants).");
+    connected = mqttClient.connect(clientId.c_str());
+  }
+
+  if (connected) {
     Serial.println("✓ MQTT connecté !");
     mqttClient.subscribe(TOPIC_CONFIG);
     mqttClient.subscribe(TOPIC_STATUS);

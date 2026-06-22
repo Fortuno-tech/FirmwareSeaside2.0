@@ -99,6 +99,8 @@ bool storage_loadConfig() {
   if (doc.containsKey("staPassword")) staPassword = doc["staPassword"].as<String>();
   if (doc.containsKey("mqttServer")) mqttServer = doc["mqttServer"].as<String>();
   if (doc.containsKey("mqttPort")) mqttPort = doc["mqttPort"].as<int>();
+  if (doc.containsKey("mqttUser")) mqttUser = doc["mqttUser"].as<String>();
+  if (doc.containsKey("mqttPassword")) mqttPassword = doc["mqttPassword"].as<String>();
   if (doc.containsKey("seuil")) {
     int val = doc["seuil"].as<int>();
     if (val >= SEUIL_MIN && val <= SEUIL_MAX) seuil = val;
@@ -124,6 +126,8 @@ void storage_saveConfig() {
   doc["staPassword"] = staPassword;
   doc["mqttServer"] = mqttServer;
   doc["mqttPort"] = mqttPort;
+  doc["mqttUser"] = mqttUser;
+  doc["mqttPassword"] = mqttPassword;
   doc["seuil"] = seuil;
 
   if (serializeJson(doc, file) == 0) {

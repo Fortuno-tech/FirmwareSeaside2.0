@@ -157,9 +157,11 @@ void setupServer() {
 
   // ─── GET /api/mqtt ────────────────────────────────────────────────────────
   server.on("/api/mqtt", HTTP_GET, [](AsyncWebServerRequest* request) {
-    StaticJsonDocument<200> doc;
-    doc["server"] = mqttServer;
-    doc["port"]   = mqttPort;
+    StaticJsonDocument<300> doc;
+    doc["server"]   = mqttServer;
+    doc["port"]     = mqttPort;
+    doc["user"]     = mqttUser;
+    doc["password"] = mqttPassword;
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
@@ -170,16 +172,20 @@ void setupServer() {
     [](AsyncWebServerRequest* request) {},
     NULL,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-      StaticJsonDocument<200> doc;
+      StaticJsonDocument<300> doc;
       deserializeJson(doc, data, len);
       String newServer = doc["server"] | mqttServer;
       int    newPort   = doc["port"]   | mqttPort;
+      String newUser   = doc["user"]   | mqttUser;
+      String newPass   = doc["password"] | mqttPassword;
       if (newServer.length() < 1) {
         request->send(400, "application/json", "{\"error\":\"Serveur MQTT vide\"}");
         return;
       }
-      mqttServer = newServer;
-      mqttPort   = newPort;
+      mqttServer   = newServer;
+      mqttPort     = newPort;
+      mqttUser     = newUser;
+      mqttPassword = newPass;
       storage_saveConfig();
       mqttTriggerSetup = true;
       request->send(200, "application/json", "{\"status\":\"ok\"}");

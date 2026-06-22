@@ -52,6 +52,8 @@ extern String staSSID;
 extern String staPassword;
 extern String mqttServer;
 extern int mqttPort;
+extern String mqttUser;
+extern String mqttPassword;
 extern int compteur;
 extern int seuil;
 extern bool mqttTriggerSetup;
