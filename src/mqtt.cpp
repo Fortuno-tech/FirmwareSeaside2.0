@@ -123,10 +123,11 @@ void handleMQTT() {
       lastMqttRetry = 0;
     }
     
-    // Alerte périodique (toutes les 15 secondes)
-    if (staSSID != "" && (now - lastWifiCheck >= 15000 || lastWifiCheck == 0)) {
+    // Tentative de reconnexion périodique (toutes les 30 secondes)
+    if (staSSID != "" && (now - lastWifiCheck >= 30000 || lastWifiCheck == 0)) {
       lastWifiCheck = now;
-      Serial.println("En attente de connexion WiFi STA...");
+      Serial.println("En attente de connexion WiFi STA. Tentative de reconnexion...");
+      WiFi.begin(staSSID.c_str(), staPassword.c_str());
     }
   }
 }

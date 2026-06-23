@@ -1,5 +1,7 @@
 #include "buttons.h"
 #include "config.h"
+#include "buzzer_led.h"
+#include "storage.h"
 
 // ─── Callbacks enregistrés ────────────────────────────────────────────────────
 static ButtonCallback s_onPlus  = nullptr;
@@ -7,19 +9,21 @@ static ButtonCallback s_onMinus = nullptr;
 static ButtonCallback s_onReset = nullptr;
 static ButtonCallback s_onWake  = nullptr;
 
-// ─── État anti-rebond ─────────────────────────────────────────────────────────
-static bool          s_prevPlus  = HIGH;
-static bool          s_prevMinus = HIGH;
-static bool          s_prevReset = HIGH;
+// ─── États anti-rebond et appui long ─────────────────────────────────────────
+static bool          s_plusLastState = HIGH;
+static unsigned long s_plusLastDebounceTime = 0;
 
-static unsigned long s_debounceTimePlus  = 0;
-static unsigned long s_debounceTimeMinus = 0;
-static unsigned long s_debounceTimeReset = 0;
+static bool          s_minusLastState = HIGH;
+static unsigned long s_minusLastDebounceTime = 0;
 
-// ─── Fenêtres de réveil ───────────────────────────────────────────────────────
-static unsigned long s_wakeTimePlus  = 0;
-static unsigned long s_wakeTimeMinus = 0;
-static unsigned long s_wakeTimeReset = 0;
+static bool          s_resetLastState = HIGH;
+static unsigned long s_resetLastDebounceTime = 0;
+static unsigned long s_resetPressStartTime = 0;
+static bool          s_resetIsHeld = false;
+static bool          s_formatTriggered = false;
+
+// Temps global du dernier réveil pour la fenêtre de garde
+static unsigned long s_lastWakeTime = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
@@ -42,56 +46,105 @@ void buttons_init() {
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
-// Macro interne pour factoriser la logique commune des 3 boutons
-// ─────────────────────────────────────────────────────────────────────────────
-static void handleButton(int          pin,
-                         bool&        prevState,
-                         unsigned long& debounceTime,
-                         unsigned long& wakeTime,
-                         ButtonCallback onAction,
-                         bool           displayEnabled,
-                         const char*    label)
-{
-  bool state = digitalRead(pin);
-  unsigned long now = millis();
-
-  if (prevState == HIGH && state == LOW) {          // Front descendant
-    if (now - debounceTime >= DEBOUNCE_DELAY) {
-
-      if (!displayEnabled) {
-        // ── Réveil uniquement ─────────────────────────────────────────────
-        wakeTime = now;
-        if (s_onWake) s_onWake();
-        Serial.print("→ Réveil de l'afficheur (");
-        Serial.print(label);
-        Serial.println(")");
-      }
-      else {
-        if (now - wakeTime <= WAKE_WINDOW) {
-          // ── Ignoré : appui trop proche du réveil ─────────────────────
-          Serial.println("→ Ignoré (réveil récent)");
-        } else {
-          // ── Action normale ────────────────────────────────────────────
-          if (onAction) onAction();
-        }
-      }
-
-      debounceTime = now;
-    }
-  }
-
-  prevState = state;
-}
-
-// ─────────────────────────────────────────────────────────────────────────────
 
 void buttons_update(bool displayEnabled) {
-  handleButton(BTN_PLUS,  s_prevPlus,  s_debounceTimePlus,  s_wakeTimePlus,
-               s_onPlus,  displayEnabled, "bouton +");
+  unsigned long now = millis();
 
-  handleButton(BTN_MINUS, s_prevMinus, s_debounceTimeMinus, s_wakeTimeMinus,
-               s_onMinus, displayEnabled, "bouton -");
+  // ─── BOUTON PLUS (+) ───────────────────────────────────────────────────────
+  bool plusReading = digitalRead(BTN_PLUS);
+  if (plusReading != s_plusLastState) {
+    if (now - s_plusLastDebounceTime >= 50) {
+      s_plusLastState = plusReading;
+      s_plusLastDebounceTime = now;
 
-  handleButton(BTN_RESET, s_prevReset, s_debounceTimeReset, s_wakeTimeReset,
-               s_onReset, displayEnabled, "bouton RESET");
+      if (s_plusLastState == LOW) {
+        if (!displayEnabled) {
+          s_lastWakeTime = now;
+          if (s_onWake) s_onWake();
+          Serial.println("→ Réveil de l'afficheur (bouton +)");
+        } else {
+          if (now - s_lastWakeTime > WAKE_WINDOW) {
+            if (s_onPlus) s_onPlus();
+          }
+        }
+      }
+    }
+  } else {
+    s_plusLastDebounceTime = now;
+  }
+
+  // ─── BOUTON MINUS (-) ──────────────────────────────────────────────────────
+  bool minusReading = digitalRead(BTN_MINUS);
+  if (minusReading != s_minusLastState) {
+    if (now - s_minusLastDebounceTime >= 50) {
+      s_minusLastState = minusReading;
+      s_minusLastDebounceTime = now;
+
+      if (s_minusLastState == LOW) {
+        if (!displayEnabled) {
+          s_lastWakeTime = now;
+          if (s_onWake) s_onWake();
+          Serial.println("→ Réveil de l'afficheur (bouton -)");
+        } else {
+          if (now - s_lastWakeTime > WAKE_WINDOW) {
+            if (s_onMinus) s_onMinus();
+          }
+        }
+      }
+    }
+  } else {
+    s_minusLastDebounceTime = now;
+  }
+
+  // ─── BOUTON RESET / FORMAT ─────────────────────────────────────────────────
+  bool resetReading = digitalRead(BTN_RESET);
+  if (resetReading != s_resetLastState) {
+    if (now - s_resetLastDebounceTime >= 50) {
+      s_resetLastState = resetReading;
+      s_resetLastDebounceTime = now;
+
+      if (s_resetLastState == LOW) {
+        if (!displayEnabled) {
+          s_lastWakeTime = now;
+          if (s_onWake) s_onWake();
+          Serial.println("→ Réveil de l'afficheur (bouton RESET)");
+        } else {
+          if (now - s_lastWakeTime > WAKE_WINDOW) {
+            s_resetPressStartTime = now;
+            s_resetIsHeld = true;
+            s_formatTriggered = false;
+          }
+        }
+      } else {
+        // Relâché
+        if (s_resetIsHeld) {
+          if (!s_formatTriggered) {
+            if (s_onReset) s_onReset();
+          }
+          s_resetIsHeld = false;
+        }
+      }
+    }
+  } else {
+    s_resetLastDebounceTime = now;
+  }
+
+  // Gestion du maintien pour formatage (3 secondes)
+  if (s_resetIsHeld && !s_formatTriggered) {
+    if (now - s_resetPressStartTime >= 3000) {
+      s_formatTriggered = true;
+      Serial.println("!!! BOUTON RESET MAINTENU : DEBUT FORMATAGE !!!");
+      
+      // Signal sonore/lumineux
+      buzzerLed_trigger();
+      delay(200);
+      buzzerLed_trigger();
+      
+      storage_format();
+      
+      Serial.println("Formatage terminé. Redémarrage du système...");
+      delay(500);
+      ESP.restart();
+    }
+  }
 }

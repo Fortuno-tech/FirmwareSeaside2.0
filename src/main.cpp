@@ -29,8 +29,8 @@ static bool          bootGuardDone      = false;  // protège la 1ère lecture
 static void onButtonPlus() {
   compteur++;
   if (moduleRole == "master") {
-    totalPersonnes = compteur;
-    personnesActuelles = compteur;
+    totalPersonnes++;
+    personnesActuelles++;
   }
   lastActivityTime = millis();
   storage_markDirty();
@@ -42,10 +42,12 @@ static void onButtonPlus() {
 }
 
 static void onButtonMinus() {
-  if (compteur > 0) compteur--;
-  if (moduleRole == "master") {
-    totalPersonnes = compteur;
-    personnesActuelles = compteur;
+  if (compteur > 0) {
+    compteur--;
+    if (moduleRole == "master") {
+      if (totalPersonnes > 0) totalPersonnes--;
+      if (personnesActuelles > 0) personnesActuelles--;
+    }
   }
   lastActivityTime = millis();
   storage_markDirty();
@@ -61,6 +63,7 @@ static void onButtonReset() {
   if (moduleRole == "master") {
     totalPersonnes = 0;
     personnesActuelles = 0;
+    espnow_resetSlaves();
   }
   lastActivityTime = millis();
   storage_markDirty();
@@ -85,10 +88,19 @@ static void handleUltrasonic() {
   static unsigned long lastSensorRead   = 0;
   // FIX Bug 2 : lastObstacleTime déclarée ICI (scope fonction) et non dans le else
   static unsigned long lastObstacleTime = 0;
+  static int lastSeuilVal = seuil;
 
   // Interroger le capteur toutes les 100 ms (anti-échos parasites)
   if (now - lastSensorRead < 100) return;
   lastSensorRead = now;
+
+  // Réinitialiser la garde si le seuil change
+  if (seuil != lastSeuilVal) {
+    lastSeuilVal = seuil;
+    bootGuardDone = false;
+    objetDetecte = false;
+    Serial.printf("[SENSOR] Seuil modifié à %d cm. Réinitialisation de la garde...\n", seuil);
+  }
 
   float distance = ultrasonic_readDistance();
 
@@ -97,18 +109,23 @@ static void handleUltrasonic() {
   // Cela évite de bloquer indefiniment objetDetecte=true si le capteur perd l'écho.
   bool voibreLibre = (distance <= 0.0f || distance >= (float)seuil);
 
-  // FIX Bug 1 : protection démarrage
-  // On laisse passer 2 lectures valides avant d'activer la détection,
-  // pour ne pas comptabiliser un objet déjà présent au boot.
+  // FIX Bug 1 : protection démarrage / changement de seuil
+  // On laisse passer 3 lectures valides avant d'activer la détection,
+  // pour ne pas comptabiliser un objet déjà présent au boot ou après changement de seuil.
   if (!bootGuardDone) {
     static uint8_t bootReadCount = 0;
+    // Si un objet est déjà présent au démarrage ou après changement, on le considère comme détecté
+    if (distance > 0.0f && distance < (float)seuil) {
+      objetDetecte = true;
+    }
     bootReadCount++;
     if (bootReadCount >= 3) {
       bootGuardDone    = true;
       lastDetectionTime = now;   // cooldown réinitialisé proprement
-      Serial.printf("[SENSOR] Boot guard OK – seuil actif : %d cm\n", seuil);
+      Serial.printf("[SENSOR] Garde OK – seuil actif : %d cm | objetDetecte initial = %d\n", seuil, (int)objetDetecte);
+      bootReadCount = 0;         // Reset pour le prochain changement de seuil
     } else {
-      Serial.printf("[SENSOR] Boot guard %d/3 – dist=%.1f cm\n", bootReadCount, distance);
+      Serial.printf("[SENSOR] Garde %d/3 – dist=%.1f cm\n", bootReadCount, distance);
     }
     return;
   }
@@ -119,7 +136,7 @@ static void handleUltrasonic() {
     lastLogTime = now;
     Serial.printf("[SENSOR] dist=%.1f cm | seuil=%d cm | detecete=%d | cooldown=%lu ms restant\n",
       distance, seuil, (int)objetDetecte,
-      (now - lastDetectionTime < 1500) ? (1500 - (now - lastDetectionTime)) : 0);
+      (now - lastDetectionTime < 800) ? (800 - (now - lastDetectionTime)) : 0);
   }
 
   if (!voibreLibre) {
@@ -130,7 +147,7 @@ static void handleUltrasonic() {
     lastObstacleTime = 0;
 
     if (!objetDetecte) {
-      if (now - lastDetectionTime >= 1500) {
+      if (now - lastDetectionTime >= 800) {
         // ── PASSAGE VALIDÉ ────────────────────────────────────────────
         compteur++;
         objetDetecte      = true;
@@ -144,8 +161,8 @@ static void handleUltrasonic() {
           distance, seuil, compteur);
 
         if (moduleRole == "master") {
-          totalPersonnes     = compteur;
-          personnesActuelles = compteur;
+          totalPersonnes++;
+          personnesActuelles++;
         }
         int valToShow = (moduleRole == "master") ? totalPersonnes : compteur;
         webserver_broadcastCount(valToShow);
@@ -153,7 +170,7 @@ static void handleUltrasonic() {
       } else {
         // FIX Bug 4 : log explicite quand le cooldown bloque
         Serial.printf("[SENSOR] Passage ignoré (cooldown %lu ms restant)\n",
-          1500 - (now - lastDetectionTime));
+          800 - (now - lastDetectionTime));
       }
     }
 
@@ -163,9 +180,9 @@ static void handleUltrasonic() {
       if (lastObstacleTime == 0) {
         // Début de la fenêtre d'hysterésis
         lastObstacleTime = now;
-      } else if (now - lastObstacleTime > 500) {
-        // FIX Bug 2 : liburation propre avec log
-        Serial.printf("[SENSOR] Voie libérée après hysterésis 500 ms\n");
+      } else if (now - lastObstacleTime > 300) {
+        // FIX Bug 2 : libération propre avec log (hystérésis réduite à 300ms pour fluidité)
+        Serial.printf("[SENSOR] Voie libérée après hysterésis 300 ms\n");
         objetDetecte     = false;
         lastObstacleTime = 0;
       }
@@ -195,6 +212,10 @@ void setup() {
   if (storage_init()) {
     compteur = storage_load();
     storage_loadConfig();
+    if (moduleRole == "master") {
+      totalPersonnes = compteur;
+      personnesActuelles = compteur;
+    }
   }
 
   // WiFi et Services
@@ -235,7 +256,7 @@ void loop() {
   buzzerLed_update();
   buttons_update(displayEnabled);
   handleUltrasonic();
-  storage_update(compteur);
+  storage_update((moduleRole == "master") ? totalPersonnes : compteur);
   handleOTA();
 
   // Logique Master

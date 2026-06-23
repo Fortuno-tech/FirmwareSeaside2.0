@@ -899,8 +899,23 @@ document.addEventListener("DOMContentLoaded", () => {
   // Chargement de la configuration du module (depuis script_farany)
   loadModuleConfig();
   
-  // Initialisation des modes réseau et firmware
-  changeNetworkMode();
+  // Initialisation du mode réseau selon la configuration de l'ESP32
+  fetch("/api/wifi")
+    .then(res => res.json())
+    .then(wifiData => {
+      let modeNetSelect = document.getElementById("modeNet");
+      if (wifiData.ssid && wifiData.ssid.trim() !== "") {
+        if (modeNetSelect) modeNetSelect.value = "online";
+      } else {
+        if (modeNetSelect) modeNetSelect.value = "ap";
+      }
+      changeNetworkMode();
+    })
+    .catch(err => {
+      console.error("Erreur chargement WiFi init :", err);
+      changeNetworkMode();
+    });
+    
   changeFirmwareMode();
   
   // Animation du titre

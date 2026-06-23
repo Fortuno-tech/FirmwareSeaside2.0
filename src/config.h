@@ -3,34 +3,34 @@
 
 #include <Arduino.h>
 
-// â”€â”€â”€ Shift Register (74HC595) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//              Shift Register (74HC595)                                                                                                                                                                                                 â”€
 #define DATA_PIN   23
 #define LATCH_PIN  22
 #define CLOCK_PIN  21
 
-// â”€â”€â”€ Capteur ultrason â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//              Capteur ultrason                                                                                                                                                                                                                                     
 #define TRIG_PIN   14
 #define ECHO_PIN   32
 #define SEUIL_DEFAULT  80    // Valeur par défaut du seuil (cm)
 #define SEUIL_MIN       10   // Seuil minimum autorisé (cm)
 #define SEUIL_MAX      500   // Seuil maximum autorisé (cm)
 
-// â”€â”€â”€ Buzzer et LED â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//              Buzzer et LED                                                                                                                                                                                                                                                 
 #define BUZZER_PIN 5
 #define LED_PIN    12
 
-// â”€â”€â”€ Afficheurs 7 segments (Common Anode) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//              Afficheurs 7 segments (Common Anode)                                                                                                                                                 
 #define D1  4   // Milliers  (gauche)
 #define D2  15  // Centaines
 #define D3  2   // Dizaines
 #define D4  13  // Unités    (droite)
 
-// â”€â”€â”€ Boutons â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€        
-#define BTN_PLUS   25
-#define BTN_MINUS  33
-#define BTN_RESET  27
+//              Boutons                                                                                                                                                                                                                                                             â”€â”€        
+#define BTN_PLUS   27
+#define BTN_MINUS  26
+#define BTN_RESET  25
 
-// â”€â”€â”€ Timings â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€        
+//              Timings                                                                                                                                                                                                                                                             â”€â”€        
 #define INACTIVITY_TIMEOUT   20000UL  // Veille après 20 s d'inactivité (ms)
 #define LOOP_INTERVAL          400UL  // Rafraîchissement afficheur (ms)
 #define DEBOUNCE_DELAY         200UL  // Anti-rebond boutons (ms)
@@ -38,10 +38,10 @@
 #define SAVE_DELAY            2000UL  // Délai sauvegarde différée (ms)
 #define BUZZER_LED_DURATION    300UL  // Durée buzzer/LED (ms)
 
-// â”€â”€â”€ Fichier de sauvegarde â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//              Fichier de sauvegarde                                                                                                                                                                                                             
 #define SAVE_FILE "/compteur.txt"
 
-// â”€â”€â”€ Variables globales (externes) â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+//              Variables globales (externes)                                                                               
 extern String apSSID;
 extern String apPassword;
 extern int totalPersonnes;

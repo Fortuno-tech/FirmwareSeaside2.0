@@ -58,18 +58,18 @@ void display_showNumber(int nombre, bool enabled) {
   shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, SEG_CODES[unites]);
   digitalWrite(D4, HIGH);
 
-  // ── Digit Dizaines (D2) ───────────────────────────────────────────────────
-  if (nombre >= 10) {
-    shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, SEG_CODES[dizaines]);
+  // ── Digit Centaines (D2) ─────────────────────────────────────────────────
+  if (nombre >= 100) {
+    shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, SEG_CODES[centaines]);
     digitalWrite(D2, HIGH);
   } else {
     shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, SEG_BLANK);
     digitalWrite(D2, LOW);
   }
 
-  // ── Digit Centaines (D3) ─────────────────────────────────────────────────
-  if (nombre >= 100) {
-    shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, SEG_CODES[centaines]);
+  // ── Digit Dizaines (D3) ───────────────────────────────────────────────────
+  if (nombre >= 10) {
+    shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, SEG_CODES[dizaines]);
     digitalWrite(D3, HIGH);
   } else {
     shiftOut(DATA_PIN, CLOCK_PIN, MSBFIRST, SEG_BLANK);

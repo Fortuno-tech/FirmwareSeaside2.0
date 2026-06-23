@@ -18,6 +18,24 @@ void onDataSent(const uint8_t* mac, esp_now_send_status_t status) {
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? "OK" : "FAILED");
 }
 
+// Structure pour suivre les compteurs des Slaves
+struct SlaveDevice {
+  uint8_t mac[6];
+  int lastCount;
+  bool active;
+};
+
+#define MAX_SLAVES 10
+static SlaveDevice s_slaves[MAX_SLAVES] = {0};
+static int s_slaveCount = 0;
+
+void espnow_resetSlaves() {
+  for (int i = 0; i < MAX_SLAVES; i++) {
+    s_slaves[i].lastCount = 0;
+  }
+  Serial.println("→ Compteurs des esclaves réinitialisés sur le Master.");
+}
+
 // Callback réception (Master)
 void onDataReceived(const uint8_t* mac, const uint8_t* data, int len) {
   memcpy(&dataReceived, data, sizeof(dataReceived));
@@ -29,10 +47,39 @@ void onDataReceived(const uint8_t* mac, const uint8_t* data, int len) {
   Serial.print(" | Count : ");
   Serial.println(dataReceived.count);
 
-  // Mise à  jour compteur global
-  totalPersonnes     = dataReceived.count;
-  personnesActuelles = dataReceived.count;
-  webserver_broadcastCount(totalPersonnes);
+  // Rechercher ou ajouter l'esclave dans notre liste
+  int slaveIndex = -1;
+  for (int i = 0; i < s_slaveCount; i++) {
+    if (memcmp(s_slaves[i].mac, mac, 6) == 0) {
+      slaveIndex = i;
+      break;
+    }
+  }
+
+  if (slaveIndex == -1 && s_slaveCount < MAX_SLAVES) {
+    // Ajouter un nouvel esclave
+    slaveIndex = s_slaveCount;
+    memcpy(s_slaves[slaveIndex].mac, mac, 6);
+    s_slaves[slaveIndex].lastCount = 0; // On suppose qu'il commence à 0
+    s_slaves[slaveIndex].active = true;
+    s_slaveCount++;
+  }
+
+  if (slaveIndex != -1) {
+    int diff = dataReceived.count - s_slaves[slaveIndex].lastCount;
+    s_slaves[slaveIndex].lastCount = dataReceived.count;
+
+    totalPersonnes += diff;
+    personnesActuelles += diff;
+
+    if (totalPersonnes < 0) totalPersonnes = 0;
+    if (personnesActuelles < 0) personnesActuelles = 0;
+
+    Serial.printf("→ Slave Diff: %+d | Total Global = %d\n", diff, totalPersonnes);
+
+    // Diffusion du nouveau total
+    webserver_broadcastCount(totalPersonnes);
+  }
 }
 
 // Setup Master
@@ -63,6 +110,9 @@ void setupESPNOW_Slave() {
 
 // Ajouter un Slave (depuis Master)
 void espnow_addSlave(uint8_t* mac) {
+  if (esp_now_is_peer_exist(mac)) {
+    return; // Déjà ajouté
+  }
   esp_now_peer_info_t peerInfo = {};
   memcpy(peerInfo.peer_addr, mac, 6);
   peerInfo.channel = 0;

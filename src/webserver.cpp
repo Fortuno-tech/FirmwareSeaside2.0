@@ -118,6 +118,12 @@ void setupServer() {
       String newSSID = doc["ssid"]     | apSSID;
       String newPass = doc["password"] | apPassword;
       modifierAP(newSSID, newPass);
+      
+      // Désactiver le mode STA
+      staSSID = "";
+      staPassword = "";
+      WiFi.disconnect(true); // Se déconnecter du point d'accès externe
+      
       storage_saveConfig();
       request->send(200, "application/json", "{\"status\":\"ok\"}");
     }
