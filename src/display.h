@@ -15,4 +15,7 @@ void display_showNumber(int nombre, bool enabled);
 // ─── Extinction complète ──────────────────────────────────────────────────────
 void display_off();
 
+// ─── Mise à jour immédiate ───────────────────────────────────────────────────
+void triggerImmediateDisplayUpdate();
+
 #endif // DISPLAY_H

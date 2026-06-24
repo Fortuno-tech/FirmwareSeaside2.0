@@ -101,6 +101,9 @@ bool storage_loadConfig() {
   if (doc.containsKey("mqttPort")) mqttPort = doc["mqttPort"].as<int>();
   if (doc.containsKey("mqttUser")) mqttUser = doc["mqttUser"].as<String>();
   if (doc.containsKey("mqttPassword")) mqttPassword = doc["mqttPassword"].as<String>();
+  if (doc.containsKey("moduleId")) moduleId = doc["moduleId"].as<String>();
+  if (doc.containsKey("isMasterConfigured")) isMasterConfigured = doc["isMasterConfigured"].as<bool>();
+  if (doc.containsKey("licenseCode"))        licenseCode = doc["licenseCode"].as<String>();
   if (doc.containsKey("seuil")) {
     int val = doc["seuil"].as<int>();
     if (val >= SEUIL_MIN && val <= SEUIL_MAX) seuil = val;
@@ -117,7 +120,7 @@ void storage_saveConfig() {
     return;
   }
 
-  StaticJsonDocument<600> doc;
+  StaticJsonDocument<700> doc;
   doc["apSSID"] = apSSID;
   doc["apPassword"] = apPassword;
   doc["moduleRole"] = moduleRole;
@@ -129,6 +132,9 @@ void storage_saveConfig() {
   doc["mqttUser"] = mqttUser;
   doc["mqttPassword"] = mqttPassword;
   doc["seuil"] = seuil;
+  doc["moduleId"] = moduleId;
+  doc["isMasterConfigured"] = isMasterConfigured;
+  doc["licenseCode"] = licenseCode;
 
   if (serializeJson(doc, file) == 0) {
     Serial.println("✗ Erreur: échec de l'écriture dans config.json");

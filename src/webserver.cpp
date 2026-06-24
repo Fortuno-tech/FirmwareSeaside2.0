@@ -3,18 +3,45 @@
 #include "wifi_ap.h"
 #include "storage.h"
 #include "mqtt.h"
+#include "espnow.h"
 #include <WiFi.h>
 #include <AsyncTCP.h>
 #include <ESPAsyncWebServer.h>
 #include <ArduinoJson.h>
 #include <LittleFS.h>
 #include <Update.h>
+#include <vector>
 
+// ─── Structures ───────────────────────────────────────────────────────────────
+
+struct SlaveInfo {
+  String mac;
+  String ip;
+  String moduleId;
+  int    count;
+  unsigned long lastSeen;
+  int    seuil;
+};
+
+// Slaves auto-découverts (via HTTP announce depuis wifi_ap.cpp)
+static std::vector<SlaveInfo> s_registeredSlaves;
+
+// Slaves configurés manuellement depuis l'interface (liste persistante côté web)
+struct ConfiguredSlave {
+  String mac;
+  String moduleId;   // Nom donné par l'utilisateur (ex: "Slave-1")
+  String wifiSSID;
+  String wifiPassword;
+};
+static std::vector<ConfiguredSlave> s_configuredSlaves;
 
 AsyncWebServer server(80);
 AsyncWebSocket ws("/ws");
 
+// ─────────────────────────────────────────────────────────────────────────────
+
 void setupServer() {
+
   // Configurer le WebSocket
   ws.onEvent([](AsyncWebSocket* server, AsyncWebSocketClient* client, AwsEventType type, void* arg, uint8_t* data, size_t len) {
     if (type == WS_EVT_CONNECT) {
@@ -29,17 +56,281 @@ void setupServer() {
 
   // ─── GET /api/status ──────────────────────────────────────────────────────
   server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* request) {
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<300> doc;
     doc["total"]     = totalPersonnes;
     doc["current"]   = personnesActuelles;
     doc["role"]      = moduleRole;
-    doc["ip"]        = WiFi.softAPIP().toString();
+    doc["moduleId"]  = moduleId;
+    doc["ip"]        = (moduleRole == "slave") ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
     doc["mac"]       = WiFi.macAddress();
     doc["connected"] = (WiFi.status() == WL_CONNECTED);
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
   });
+
+  // ─── POST /api/register_slave ──────────────────────────────────────────────
+  server.on("/api/register_slave", HTTP_POST,
+    [](AsyncWebServerRequest* request) {},
+    NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      StaticJsonDocument<256> doc;
+      deserializeJson(doc, data, len);
+      
+      if (doc.containsKey("mac") && doc.containsKey("ip")) {
+        String mac      = doc["mac"].as<String>();
+        String ip       = doc["ip"].as<String>();
+        String slvId    = doc["moduleId"].as<String>();
+        int    count    = doc["count"] | 0;
+        int    slvSeuil = doc["seuil"] | 80;
+        
+        bool found = false;
+        for (auto& s : s_registeredSlaves) {
+          if (s.mac.equalsIgnoreCase(mac)) {
+            s.ip       = ip;
+            s.count    = count;
+            s.seuil    = slvSeuil;
+            s.lastSeen = millis();
+            if (slvId.length() > 0) s.moduleId = slvId;
+            found = true;
+            break;
+          }
+        }
+        
+        if (!found) {
+          SlaveInfo s;
+          s.mac      = mac;
+          s.ip       = ip;
+          s.moduleId = (slvId.length() > 0) ? slvId : ("Slave-" + String(s_registeredSlaves.size() + 1));
+          s.count    = count;
+          s.seuil    = slvSeuil;
+          s.lastSeen = millis();
+          s_registeredSlaves.push_back(s);
+        }
+        
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+      } else {
+        request->send(400, "application/json", "{\"error\":\"Champs mac ou ip manquants\"}");
+      }
+    }
+  );
+
+  // ─── GET /api/slaves ───────────────────────────────────────────────────────
+  // Retourne les slaves auto-découverts (via HTTP announce) + ceux reçus via ESP-NOW
+  server.on("/api/slaves", HTTP_GET, [](AsyncWebServerRequest* request) {
+    StaticJsonDocument<2048> doc;
+    JsonArray array = doc.to<JsonArray>();
+    
+    unsigned long now = millis();
+    
+    // Slaves HTTP (annonce WiFi)
+    for (const auto& s : s_registeredSlaves) {
+      JsonObject obj = array.createNestedObject();
+      obj["mac"]      = s.mac;
+      obj["ip"]       = s.ip;
+      obj["moduleId"] = s.moduleId;
+      obj["count"]    = s.count;
+      obj["seuil"]    = s.seuil;
+      obj["active"]   = (now - s.lastSeen < 30000);
+      obj["source"]   = "wifi";
+    }
+    
+    // Slaves ESP-NOW (envoi direct sans WiFi)
+    int espNowCount = espnow_getSlaveCount();
+    for (int i = 0; i < espNowCount; i++) {
+      char macBuf[18], idBuf[20];
+      int  cnt;
+      bool active;
+      int  slvSeuil;
+      if (espnow_getSlaveInfo(i, macBuf, idBuf, &cnt, &active, &slvSeuil)) {
+        // Vérifier qu'il n'est pas déjà dans la liste WiFi
+        bool alreadyIn = false;
+        for (const auto& s : s_registeredSlaves) {
+          if (s.mac.equalsIgnoreCase(macBuf)) { alreadyIn = true; break; }
+        }
+        if (!alreadyIn) {
+          JsonObject obj = array.createNestedObject();
+          obj["mac"]      = String(macBuf);
+          obj["ip"]       = "";
+          obj["moduleId"] = String(idBuf[0] ? idBuf : ("Slave-" + String(i + 1)).c_str());
+          obj["count"]    = cnt;
+          obj["seuil"]    = slvSeuil;
+          obj["active"]   = active;
+          obj["source"]   = "espnow";
+        }
+      }
+    }
+    
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
+
+  // ─── GET /api/modules_count ────────────────────────────────────────────────
+  // Retourne le compteur de chaque module (master + slaves) + le total général
+  server.on("/api/modules_count", HTTP_GET, [](AsyncWebServerRequest* request) {
+    StaticJsonDocument<2048> doc;
+    
+    // Module master (ce module)
+    JsonArray modules = doc.createNestedArray("modules");
+    JsonObject masterObj = modules.createNestedObject();
+    masterObj["moduleId"] = moduleId;
+    masterObj["role"]     = moduleRole;
+    masterObj["mac"]      = WiFi.macAddress();
+    masterObj["count"]    = compteur;   // compteur local du master
+    masterObj["seuil"]    = seuil;
+    masterObj["active"]   = true;
+    
+    unsigned long now = millis();
+    
+    // Slaves HTTP
+    for (const auto& s : s_registeredSlaves) {
+      JsonObject obj = modules.createNestedObject();
+      obj["moduleId"] = s.moduleId;
+      obj["role"]     = "slave";
+      obj["mac"]      = s.mac;
+      obj["count"]    = s.count;
+      obj["seuil"]    = s.seuil;
+      obj["active"]   = (now - s.lastSeen < 30000);
+    }
+    
+    // Slaves ESP-NOW (qui ne sont pas déjà dans HTTP)
+    int espNowCount = espnow_getSlaveCount();
+    for (int i = 0; i < espNowCount; i++) {
+      char macBuf[18], idBuf[20];
+      int  cnt;
+      bool active;
+      int  slvSeuil;
+      if (espnow_getSlaveInfo(i, macBuf, idBuf, &cnt, &active, &slvSeuil)) {
+        bool alreadyIn = false;
+        for (const auto& s : s_registeredSlaves) {
+          if (s.mac.equalsIgnoreCase(macBuf)) { alreadyIn = true; break; }
+        }
+        if (!alreadyIn) {
+          JsonObject obj = modules.createNestedObject();
+          obj["moduleId"] = String(idBuf[0] ? idBuf : ("Slave-" + String(i + 1)).c_str());
+          obj["role"]     = "slave";
+          obj["mac"]      = String(macBuf);
+          obj["count"]    = cnt;
+          obj["seuil"]    = slvSeuil;
+          obj["active"]   = active;
+        }
+      }
+    }
+    
+    doc["total"] = totalPersonnes;
+    
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
+
+  // ─── GET /api/slaves/configured ───────────────────────────────────────────
+  // Retourne la liste des slaves configurés manuellement dans l'interface
+  server.on("/api/slaves/configured", HTTP_GET, [](AsyncWebServerRequest* request) {
+    StaticJsonDocument<2048> doc;
+    JsonArray array = doc.to<JsonArray>();
+    for (const auto& s : s_configuredSlaves) {
+      JsonObject obj = array.createNestedObject();
+      obj["mac"]          = s.mac;
+      obj["moduleId"]     = s.moduleId;
+      obj["wifiSSID"]     = s.wifiSSID;
+    }
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
+
+  // ─── POST /api/slaves/add ──────────────────────────────────────────────────
+  server.on("/api/slaves/add", HTTP_POST,
+    [](AsyncWebServerRequest* request) {},
+    NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      StaticJsonDocument<256> doc;
+      deserializeJson(doc, data, len);
+      
+      if (!doc.containsKey("mac")) {
+        request->send(400, "application/json", "{\"error\":\"Champ mac manquant\"}");
+        return;
+      }
+      
+      String mac      = doc["mac"].as<String>();
+      String defaultId = "Slave-" + String(s_configuredSlaves.size() + 1);
+      String slvId     = doc["moduleId"].as<String>();
+      if (slvId.isEmpty()) slvId = defaultId;
+      
+      String wSSID    = doc["wifiSSID"].as<String>();
+      if (wSSID.isEmpty()) wSSID = apSSID;
+      String wPass    = doc["wifiPassword"].as<String>();
+      if (wPass.isEmpty()) wPass = apPassword;
+      
+      // Vérifier qu'il n'existe pas déjà
+      for (const auto& s : s_configuredSlaves) {
+        if (s.mac.equalsIgnoreCase(mac)) {
+          request->send(200, "application/json", "{\"status\":\"already_exists\"}");
+          return;
+        }
+      }
+      
+      ConfiguredSlave cs;
+      cs.mac          = mac;
+      cs.moduleId     = slvId;
+      cs.wifiSSID     = wSSID;
+      cs.wifiPassword = wPass;
+      s_configuredSlaves.push_back(cs);
+      
+      // Envoyer le paquet de pairing via ESP-NOW
+      uint8_t targetMac[6];
+      int macVal[6];
+      if (sscanf(mac.c_str(), "%x:%x:%x:%x:%x:%x", 
+          &macVal[0], &macVal[1], &macVal[2], &macVal[3], &macVal[4], &macVal[5]) == 6) {
+        for (int i = 0; i < 6; i++) {
+          targetMac[i] = (uint8_t)macVal[i];
+        }
+        espnow_sendPairing(targetMac, slvId.c_str(), wSSID.c_str(), wPass.c_str(), WiFi.macAddress().c_str());
+      }
+      
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+      Serial.printf("[Master] Slave configuré ajouté et pairing envoyé : %s (%s)\n", mac.c_str(), slvId.c_str());
+    }
+  );
+
+  // ─── POST /api/slaves/delete ───────────────────────────────────────────────
+  server.on("/api/slaves/delete", HTTP_POST,
+    [](AsyncWebServerRequest* request) {},
+    NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      StaticJsonDocument<128> doc;
+      deserializeJson(doc, data, len);
+      
+      if (!doc.containsKey("mac")) {
+        request->send(400, "application/json", "{\"error\":\"Champ mac manquant\"}");
+        return;
+      }
+      
+      String mac = doc["mac"].as<String>();
+      
+      // Supprimer des slaves configurés
+      for (auto it = s_configuredSlaves.begin(); it != s_configuredSlaves.end(); ++it) {
+        if (it->mac.equalsIgnoreCase(mac)) {
+          s_configuredSlaves.erase(it);
+          request->send(200, "application/json", "{\"status\":\"ok\"}");
+          return;
+        }
+      }
+      
+      // Supprimer aussi des slaves auto-découverts si présent
+      for (auto it = s_registeredSlaves.begin(); it != s_registeredSlaves.end(); ++it) {
+        if (it->mac.equalsIgnoreCase(mac)) {
+          s_registeredSlaves.erase(it);
+          request->send(200, "application/json", "{\"status\":\"ok\"}");
+          return;
+        }
+      }
+      
+      request->send(404, "application/json", "{\"error\":\"Slave non trouvé\"}");
+    }
+  );
 
   // ─── GET /api/count ───────────────────────────────────────────────────────
   server.on("/api/count", HTTP_GET, [](AsyncWebServerRequest* request) {
@@ -73,9 +364,14 @@ void setupServer() {
 
   // ─── GET /api/config/module ───────────────────────────────────────────────
   server.on("/api/config/module", HTTP_GET, [](AsyncWebServerRequest* request) {
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<512> doc;
     doc["role"]      = moduleRole;
+    doc["moduleId"]  = moduleId;
     doc["masterMAC"] = masterMAC;
+    if (moduleRole == "slave") {
+      doc["wifiSSID"]     = staSSID;
+      doc["wifiPassword"] = staPassword;
+    }
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
@@ -86,15 +382,43 @@ void setupServer() {
     [](AsyncWebServerRequest* request) {},
     NULL,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-      StaticJsonDocument<256> doc;
+      StaticJsonDocument<512> doc;
       deserializeJson(doc, data, len);
-      if (doc.containsKey("role"))      moduleRole = doc["role"].as<String>();
-      if (doc.containsKey("type"))      moduleRole = doc["type"].as<String>();
-      moduleRole.toLowerCase();
-      if (doc.containsKey("masterMAC")) masterMAC = doc["masterMAC"].as<String>();
-      if (doc.containsKey("macMaster")) masterMAC = doc["macMaster"].as<String>();
+      // macSlave correspond au champ "MAC autre module" (mac2) envoyé par le formulaire
+      if (doc.containsKey("macSlave"))   masterMAC = doc["macSlave"].as<String>();
+      else if (doc.containsKey("masterMAC")) masterMAC = doc["masterMAC"].as<String>();
+      else if (doc.containsKey("macMaster")) masterMAC = doc["macMaster"].as<String>();
+      
+      // Pour le rôle esclave, on enregistre aussi les identifiants pour se connecter au Master AP
+      if (doc.containsKey("wifiSSID"))     staSSID = doc["wifiSSID"].as<String>();
+      if (doc.containsKey("wifiPassword")) staPassword = doc["wifiPassword"].as<String>();
+      
+      // Détermination automatique du rôle
+      if (masterMAC != "" && masterMAC != "00:00:00:00:00:00" && staSSID != "") {
+        moduleRole = "slave";
+      } else {
+        moduleRole = "master";
+        masterMAC  = "00:00:00:00:00:00";
+        staSSID    = "";
+        staPassword = "";
+      }
+      
+      // moduleId personnalisé
+      if (doc.containsKey("moduleId")) {
+        moduleId = doc["moduleId"].as<String>();
+      } else {
+        // Auto-générer si pas fourni
+        moduleId = (moduleRole == "master") ? "Master" : "Slave";
+      }
+      
+      isMasterConfigured = true;
+      
       storage_saveConfig();
       request->send(200, "application/json", "{\"status\":\"ok\"}");
+      
+      // Redémarrage différé
+      requestReboot = true;
+      rebootTimer = millis();
     }
   );
 
@@ -119,10 +443,9 @@ void setupServer() {
       String newPass = doc["password"] | apPassword;
       modifierAP(newSSID, newPass);
       
-      // Désactiver le mode STA
       staSSID = "";
       staPassword = "";
-      WiFi.disconnect(true); // Se déconnecter du point d'accès externe
+      WiFi.disconnect(true);
       
       storage_saveConfig();
       request->send(200, "application/json", "{\"status\":\"ok\"}");
@@ -200,7 +523,6 @@ void setupServer() {
   );
 
   // ─── GET /api/config/sensor ───────────────────────────────────────────────
-  // Retourne le seuil de détection actuel et ses limites
   server.on("/api/config/sensor", HTTP_GET, [](AsyncWebServerRequest* request) {
     StaticJsonDocument<128> doc;
     doc["seuil"]    = seuil;
@@ -212,12 +534,11 @@ void setupServer() {
   });
 
   // ─── POST /api/config/sensor ──────────────────────────────────────────────
-  // Modifie le seuil de détection en temps réel et le sauvegarde en flash
   server.on("/api/config/sensor", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
     NULL,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-      StaticJsonDocument<128> doc;
+      StaticJsonDocument<256> doc;
       deserializeJson(doc, data, len);
       if (!doc.containsKey("seuil")) {
         request->send(400, "application/json", "{\"error\":\"Champ seuil manquant\"}");
@@ -228,9 +549,31 @@ void setupServer() {
         request->send(400, "application/json", "{\"error\":\"Valeur hors limites (10-500 cm)\"}");
         return;
       }
+
+      if (doc.containsKey("mac")) {
+        String targetMacStr = doc["mac"].as<String>();
+        if (!targetMacStr.equalsIgnoreCase(WiFi.macAddress())) {
+          uint8_t targetMac[6];
+          int macVal[6];
+          if (sscanf(targetMacStr.c_str(), "%x:%x:%x:%x:%x:%x", 
+              &macVal[0], &macVal[1], &macVal[2], &macVal[3], &macVal[4], &macVal[5]) == 6) {
+            for (int i = 0; i < 6; i++) {
+              targetMac[i] = (uint8_t)macVal[i];
+            }
+            espnow_sendConfig(targetMac, newSeuil);
+            request->send(200, "application/json", "{\"status\":\"ok\"}");
+            Serial.printf("✓ Config de seuil (%d cm) envoyée à l'esclave %s\n", newSeuil, targetMacStr.c_str());
+            return;
+          } else {
+            request->send(400, "application/json", "{\"error\":\"MAC esclave invalide\"}");
+            return;
+          }
+        }
+      }
+
       seuil = newSeuil;
       storage_saveConfig();
-      Serial.printf("✓ Seuil de détection mis à jour : %d cm\n", seuil);
+      Serial.printf("✓ Seuil de détection local mis à jour : %d cm\n", seuil);
       request->send(200, "application/json", "{\"status\":\"ok\"}");
     }
   );
@@ -272,4 +615,71 @@ void setupServer() {
 
 void webserver_broadcastCount(int val) {
   ws.textAll(String(val));
+}
+
+String webserver_getMqttPayloadJson() {
+  DynamicJsonDocument doc(4096);
+  
+  doc["battery"]      = 100; // default value
+  doc["license"]      = licenseCode;
+  doc["total"]        = totalPersonnes;
+  doc["current"]      = personnesActuelles;
+  
+  JsonArray modules = doc.createNestedArray("modules");
+  
+  // Add Master
+  JsonObject masterObj = modules.createNestedObject();
+  masterObj["moduleId"] = moduleId;
+  masterObj["role"]     = moduleRole;
+  masterObj["mac"]      = WiFi.macAddress();
+  masterObj["count"]    = compteur;
+  masterObj["seuil"]    = seuil;
+  masterObj["active"]   = true;
+  
+  unsigned long now = millis();
+  int numModules = 1;
+  
+  // Add registered slaves
+  for (const auto& s : s_registeredSlaves) {
+    JsonObject obj = modules.createNestedObject();
+    obj["moduleId"] = s.moduleId;
+    obj["role"]     = "slave";
+    obj["mac"]      = s.mac;
+    obj["count"]    = s.count;
+    obj["seuil"]    = s.seuil;
+    bool isActive   = (now - s.lastSeen < 30000);
+    obj["active"]   = isActive;
+    if (isActive) numModules++;
+  }
+  
+  // Add ESP-NOW slaves
+  int espNowCount = espnow_getSlaveCount();
+  for (int i = 0; i < espNowCount; i++) {
+    char macBuf[18], idBuf[20];
+    int  cnt;
+    bool active;
+    int  slvSeuil;
+    if (espnow_getSlaveInfo(i, macBuf, idBuf, &cnt, &active, &slvSeuil)) {
+      bool alreadyIn = false;
+      for (const auto& s : s_registeredSlaves) {
+        if (s.mac.equalsIgnoreCase(macBuf)) { alreadyIn = true; break; }
+      }
+      if (!alreadyIn) {
+        JsonObject obj = modules.createNestedObject();
+        obj["moduleId"] = String(idBuf[0] ? idBuf : ("Slave-" + String(i + 1)).c_str());
+        obj["role"]     = "slave";
+        obj["mac"]      = String(macBuf);
+        obj["count"]    = cnt;
+        obj["seuil"]    = slvSeuil;
+        obj["active"]   = active;
+        if (active) numModules++;
+      }
+    }
+  }
+  
+  doc["modulesCount"] = numModules;
+  
+  String output;
+  serializeJson(doc, output);
+  return output;
 }

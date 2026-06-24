@@ -8,6 +8,7 @@ extern AsyncWebSocket ws;
 
 void setupServer();
 void webserver_broadcastCount(int val);
+String webserver_getMqttPayloadJson();
 
 #endif // PROJECT_WEBSERVER_H
 

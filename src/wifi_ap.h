@@ -5,5 +5,6 @@
 
 void setupAP();
 void modifierAP(String newSSID, String newPassword);
+void handleSlaveAnnounce();
 
 #endif

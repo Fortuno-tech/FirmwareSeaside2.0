@@ -132,15 +132,11 @@ void handleMQTT() {
   }
 }
 
+#include "webserver.h"
+
 void mqttPublishCount(int total, int current) {
   if (mqttClient.connected()) {
-    StaticJsonDocument<200> doc;
-    doc["total"]   = total;
-    doc["current"] = current;
-    doc["module"]  = "master";
-
-    String msg;
-    serializeJson(doc, msg);
+    String msg = webserver_getMqttPayloadJson();
     mqttClient.publish(TOPIC_COUNT, msg.c_str());
     Serial.print("MQTT publié : ");
     Serial.println(msg);

@@ -25,6 +25,14 @@ static unsigned long lastLoopTime    = 0;
 static unsigned long lastDetectionTime  = 0;
 static bool          bootGuardDone      = false;  // protège la 1ère lecture
 
+void triggerImmediateDisplayUpdate() {
+  displayEnabled   = true;
+  lastActivityTime = millis();
+  int valToShow    = (moduleRole == "master") ? totalPersonnes : compteur;
+  display_showNumber(valToShow, displayEnabled);
+  lastLoopTime     = millis();
+}
+
 //buttons
 static void onButtonPlus() {
   compteur++;
@@ -32,7 +40,7 @@ static void onButtonPlus() {
     totalPersonnes++;
     personnesActuelles++;
   }
-  lastActivityTime = millis();
+  triggerImmediateDisplayUpdate();
   storage_markDirty();
   Serial.print("→ Bouton + | Compteur = ");
   Serial.println(compteur);
@@ -49,7 +57,7 @@ static void onButtonMinus() {
       if (personnesActuelles > 0) personnesActuelles--;
     }
   }
-  lastActivityTime = millis();
+  triggerImmediateDisplayUpdate();
   storage_markDirty();
   Serial.print("→ Bouton - | Compteur = ");
   Serial.println(compteur);
@@ -65,7 +73,7 @@ static void onButtonReset() {
     personnesActuelles = 0;
     espnow_resetSlaves();
   }
-  lastActivityTime = millis();
+  triggerImmediateDisplayUpdate();
   storage_markDirty();
   buzzerLed_doubleBeep();
   Serial.println("!!! BOUTON RESET - COMPTEUR REMIS À ZÉRO !!!");
@@ -75,8 +83,7 @@ static void onButtonReset() {
 }
 
 static void onWake() {
-  displayEnabled   = true;
-  lastActivityTime = millis();
+  triggerImmediateDisplayUpdate();
 }
 
 // ─────────────────────────────────────────────────────────────────────────────────
@@ -164,6 +171,7 @@ static void handleUltrasonic() {
           totalPersonnes++;
           personnesActuelles++;
         }
+        triggerImmediateDisplayUpdate();
         int valToShow = (moduleRole == "master") ? totalPersonnes : compteur;
         webserver_broadcastCount(valToShow);
 
@@ -218,6 +226,23 @@ void setup() {
     }
   }
 
+  // ─── Auto-Master : si aucun rôle n'a jamais été attribué, ce module devient Master ───
+  if (!isMasterConfigured) {
+    moduleRole = "master";
+    moduleId   = "Master";
+    isMasterConfigured = true;
+    totalPersonnes = compteur;
+    personnesActuelles = compteur;
+    storage_saveConfig();
+    Serial.println("=== Premier démarrage : rôle MASTER attribué automatiquement ===");
+  }
+
+  // Si moduleId est vide (migration depuis ancienne config), définir selon le rôle
+  if (moduleId == "") {
+    moduleId = (moduleRole == "master") ? "Master" : "Slave";
+    storage_saveConfig();
+  }
+
   // WiFi et Services
   setupAP();
   setupServer();
@@ -243,6 +268,11 @@ void setup() {
 
 void loop() {
   unsigned long now = millis();
+
+  // Redémarrage différé
+  if (requestReboot && (now - rebootTimer >= 2000)) {
+    ESP.restart();
+  }
 
   // Initialisation WiFi/MQTT différée demandée par le serveur web
   if (mqttTriggerSetup) {
@@ -270,12 +300,17 @@ void loop() {
   } 
   // Logique Slave
   else if (moduleRole == "slave") {
+    handleSlaveAnnounce();
     static int lastSent = -1;
     if (compteur != lastSent && masterMAC != "00:00:00:00:00:00") {
-      uint8_t mMac[6];
-      if (sscanf(masterMAC.c_str(), "%hhx:%hhx:%hhx:%hhx:%hhx:%hhx", 
-          &mMac[0], &mMac[1], &mMac[2], &mMac[3], &mMac[4], &mMac[5]) == 6) {
-        espnow_addSlave(mMac); // Utilise addSlave pour enregistrer le Master comme peer
+      int macVal[6];
+      if (sscanf(masterMAC.c_str(), "%x:%x:%x:%x:%x:%x", 
+          &macVal[0], &macVal[1], &macVal[2], &macVal[3], &macVal[4], &macVal[5]) == 6) {
+        uint8_t mMac[6];
+        for (int i = 0; i < 6; i++) {
+          mMac[i] = (uint8_t)macVal[i];
+        }
+        espnow_addSlave(mMac); // Enregistre le Master comme peer si pas déjà fait
         espnow_sendData(mMac, compteur);
         lastSent = compteur;
       }

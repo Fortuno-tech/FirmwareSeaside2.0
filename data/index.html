@@ -62,24 +62,19 @@
 
       <!-- ================= DASHBOARD ================= -->
       <section class="page active" id="dashboard">
+        <!-- Ligne 1 : cartes d'info -->
         <div class="cards">
-          <!-- PASSAGE -->
-          <div class="card">
+          <!-- TOTAL GENERAL -->
+          <div class="card card-total">
             <div class="card-top">
               <div>
-                <p>Passage Total</p>
-                <h2 id="passageCount">50</h2>
+                <p>Total Général</p>
+                <h2 id="passageCount">0</h2>
                 <div class="counter-actions">
-                  <button
-                    class="counter-btn decrement"
-                    onclick="decrementPassage()"
-                  >
+                  <button class="counter-btn decrement" onclick="decrementPassage()">
                     <i class="bi bi-dash-lg"></i>
                   </button>
-                  <button
-                    class="counter-btn increment"
-                    onclick="incrementPassage()"
-                  >
+                  <button class="counter-btn increment" onclick="incrementPassage()">
                     <i class="bi bi-plus-lg"></i>
                   </button>
                 </div>
@@ -88,6 +83,7 @@
                 <i class="bi bi-people-fill"></i>
               </div>
             </div>
+            <div class="card-badge" id="totalBadge">Tous modules</div>
           </div>
 
           <!-- MODE -->
@@ -116,6 +112,17 @@
             </div>
           </div>
         </div>
+
+        <!-- Ligne 2 : compteurs par module -->
+        <div class="section-header">
+          <h3><i class="bi bi-grid-3x3-gap-fill"></i> Compteurs par Module</h3>
+          <span class="section-subtitle" id="moduleCountLabel">Chargement...</span>
+        </div>
+        <div class="module-counts-grid" id="moduleCountsGrid">
+          <!-- Généré dynamiquement par JS -->
+          <div class="module-count-skeleton"></div>
+          <div class="module-count-skeleton"></div>
+        </div>
       </section>
 
       <!-- ================= RESEAUX ================= -->
@@ -143,26 +150,39 @@
 
       <!-- ================= MODULE ================= -->
       <section class="page" id="module">
+        <!-- Formulaire config module local -->
         <div class="form-box">
           <h3>
             <i class="bi bi-hdd-network"></i>
             Configuration Module
           </h3>
+
+          <!-- Rôle actuel (lecture seule) -->
+          <div class="role-banner" id="roleBanner">
+            <i class="bi bi-cpu-fill"></i>
+            <span id="roleBannerText">Chargement...</span>
+          </div>
+
           <form id="moduleForm">
+            <!-- Nom du module -->
             <div class="input-group">
               <label>
-                <i class="bi bi-diagram-3"></i>
-                Type Module
+                <i class="bi bi-tag-fill"></i>
+                Nom du module
               </label>
-              <select id="typeModule">
-                <option>Master</option>
-                <option>Slave</option>
-              </select>
+              <input
+                type="text"
+                id="moduleIdInput"
+                placeholder="Ex: Master, Slave-1, Entrée-VIP"
+                maxlength="20"
+              />
             </div>
+
+            <!-- Adresse MAC Locale (Lecture Seule) -->
             <div class="input-group">
               <label>
                 <i class="bi bi-cpu"></i>
-                Adresse MAC
+                Adresse MAC Locale
               </label>
               <input
                 type="text"
@@ -171,18 +191,8 @@
                 required
               />
             </div>
-            <div class="input-group">
-              <label>
-                <i class="bi bi-cpu-fill"></i>
-                MAC autre module
-              </label>
-              <input
-                type="text"
-                id="mac2"
-                placeholder="11:22:33:44:55:66"
-                required
-              />
-            </div>
+
+            <!-- Choix entrée -->
             <div class="input-group">
               <label>
                 <i class="bi bi-door-open"></i>
@@ -195,13 +205,81 @@
                 <option value="autre">Autre entrée</option>
               </select>
             </div>
-            <button class="btn" type="submit">
-              <i class="bi bi-check-circle"></i>
-              Confirmer
-            </button>
+
+            <!-- Option de Liaison (uniquement si Master) -->
+            <div class="input-group" id="linkToMasterToggleGroup">
+              <label style="display:flex; align-items:center; gap:8px; cursor:pointer;">
+                <input type="checkbox" id="linkToMasterCheckbox" onchange="toggleLinkToMasterFields()" style="width:18px; height:18px; cursor:pointer;" />
+                Lier ce module à un Master (Devenir Esclave)
+              </label>
+            </div>
+
+            <!-- SECTION LIAISON WIFI MASTER (Masquée par défaut) -->
+            <div id="slaveWifiSection" style="display: none; border-top:1px dashed var(--border); padding-top:15px; margin-top:15px;">
+              <div class="input-group">
+                <label>
+                  <i class="bi bi-cpu-fill"></i>
+                  Adresse MAC du Master
+                </label>
+                <input
+                  type="text"
+                  id="mac2"
+                  placeholder="AA:BB:CC:DD:EE:FF"
+                />
+              </div>
+
+              <div class="input-group">
+                <label>
+                  <i class="bi bi-wifi"></i>
+                  SSID WiFi du Master
+                </label>
+                <input
+                  type="text"
+                  id="slaveMasterSSID"
+                  placeholder="SmartCount-XXX"
+                />
+              </div>
+
+              <div class="input-group">
+                <label>
+                  <i class="bi bi-lock-fill"></i>
+                  Mot de passe du Master
+                </label>
+                <div class="password-group">
+                  <input
+                    type="password"
+                    id="slaveMasterPassword"
+                    placeholder="Fortico1234"
+                  />
+                  <i class="bi bi-eye" onclick="togglePassword('slaveMasterPassword', this)"></i>
+                </div>
+              </div>
+            </div>
+
+            <div style="display:flex; gap:10px; margin-top:20px; flex-wrap:wrap;">
+              <button class="btn" type="submit" style="flex:1;">
+                <i class="bi bi-check-circle"></i>
+                Enregistrer la configuration
+              </button>
+              <button class="btn btn-danger" id="unlinkMasterBtn" type="button" onclick="unlinkFromMaster()" style="display:none; flex:1;">
+                <i class="bi bi-x-circle"></i>
+                Délier du Master (Repasser en Master)
+              </button>
+            </div>
           </form>
         </div>
-        <div class="module-list" id="moduleList"></div>
+
+        <!-- ─── Section Slaves configurés (visible uniquement si Master) ─── -->
+        <div id="slavesConfigSection" style="display:none;">
+          <div class="slaves-header">
+            <h3><i class="bi bi-diagram-3-fill"></i> Modules Slaves</h3>
+            <button class="btn-add-slave" onclick="openAddSlaveModal()" id="addSlaveBtn">
+              <i class="bi bi-plus-lg"></i>
+              Ajouter Slave
+            </button>
+          </div>
+          <div class="module-list" id="moduleList"></div>
+        </div>
       </section>
 
       <!-- ================= LICENCE ================= -->
@@ -225,30 +303,15 @@
             <input type="text" id="licenseDate" readonly />
           </div>
           <div style="display: flex; gap: 10px; flex-wrap: wrap">
-            <button
-              class="btn"
-              type="button"
-              onclick="generateNewLicense()"
-              style="flex: 1"
-            >
+            <button class="btn" type="button" onclick="generateNewLicense()" style="flex: 1">
               <i class="bi bi-arrow-repeat"></i>
               Générer
             </button>
-            <button
-              class="btn"
-              type="button"
-              onclick="copyLicense()"
-              style="flex: 1"
-            >
+            <button class="btn" type="button" onclick="copyLicense()" style="flex: 1">
               <i class="bi bi-copy"></i>
               Copier
             </button>
-            <button
-              class="btn"
-              type="button"
-              onclick="sendLicense()"
-              style="flex: 1"
-            >
+            <button class="btn" type="button" onclick="sendLicense()" style="flex: 1">
               <i class="bi bi-send-fill"></i>
               Envoyer
             </button>
@@ -260,17 +323,11 @@
       <section class="page" id="parametre">
         <div class="settings-layout">
           <div class="settings-sidebar">
-            <button
-              class="settings-btn active"
-              onclick="showSettingPage('updatePage', this)"
-            >
+            <button class="settings-btn active" onclick="showSettingPage('updatePage', this)">
               <i class="bi bi-arrow-repeat"></i>
               Mise à jour
             </button>
-            <button
-              class="settings-btn"
-              onclick="showSettingPage('caracteristiquePage', this)"
-            >
+            <button class="settings-btn" onclick="showSettingPage('caracteristiquePage', this)">
               <i class="bi bi-info-circle"></i>
               Caractéristiques
             </button>
@@ -317,47 +374,32 @@
                 </h3>
                 <div class="characteristic-grid">
                   <div class="characteristic-card">
-                    <span class="char-label"
-                      ><i class="bi bi-tag-fill"></i>Nom</span
-                    >
+                    <span class="char-label"><i class="bi bi-tag-fill"></i>Nom</span>
                     <span class="char-value">SmartCount</span>
                   </div>
                   <div class="characteristic-card">
-                    <span class="char-label"
-                      ><i class="bi bi-diagram-3-fill"></i>Rôle</span
-                    >
+                    <span class="char-label"><i class="bi bi-diagram-3-fill"></i>Rôle</span>
                     <span class="char-value" id="deviceRole">-</span>
                   </div>
                   <div class="characteristic-card">
-                    <span class="char-label"
-                      ><i class="bi bi-wifi-off"></i>Mode</span
-                    >
+                    <span class="char-label"><i class="bi bi-wifi-off"></i>Mode</span>
                     <span class="char-value" id="deviceMode">Hors ligne</span>
                   </div>
                   <div class="characteristic-card">
-                    <span class="char-label"
-                      ><i class="bi bi-broadcast"></i>Détection Distance</span
-                    >
+                    <span class="char-label"><i class="bi bi-broadcast"></i>Détection Distance</span>
                     <span class="char-value">5m</span>
                   </div>
                   <div class="characteristic-card">
-                    <span class="char-label"
-                      ><i class="bi bi-radar"></i>Type capteur</span
-                    >
+                    <span class="char-label"><i class="bi bi-radar"></i>Type capteur</span>
                     <span class="char-value">Ultrason</span>
                   </div>
                   <div class="characteristic-card">
-                    <span class="char-label"
-                      ><i class="bi bi-battery-full"></i>Autonomie</span
-                    >
+                    <span class="char-label"><i class="bi bi-battery-full"></i>Autonomie</span>
                     <span class="char-value">10h</span>
                   </div>
                   <div class="characteristic-card">
-                    <span class="char-label"
-                      ><i class="bi bi-cpu-fill"></i>Adresse MAC</span
-                    >
+                    <span class="char-label"><i class="bi bi-cpu-fill"></i>Adresse MAC</span>
                     <span class="char-value" id="deviceMAC">-</span>
-                  </div>
                   </div>
                 </div>
               </div>
@@ -373,6 +415,15 @@
                 <p style="font-size:13px; color:var(--text-muted); margin-bottom:20px;">
                   Définissez la distance maximale (en cm) à partir de laquelle le capteur ultrason détecte un passage.
                 </p>
+                <div class="input-group" id="seuilModuleGroup">
+                  <label>
+                    <i class="bi bi-cpu"></i>
+                    Module à configurer
+                  </label>
+                  <select id="seuilModuleSelect" onchange="onSeuilModuleChange(this.value)">
+                    <option value="local">Ce module (Master)</option>
+                  </select>
+                </div>
                 <div style="text-align:center; margin-bottom:20px;">
                   <span id="seuilValue" style="font-size:48px; font-weight:700; color:var(--accent);">80 cm</span>
                 </div>
@@ -443,6 +494,48 @@
           Confirmer
         </button>
         <p class="error-text" id="passwordError"></p>
+      </div>
+    </div>
+
+    <!-- ================= MODAL AJOUTER SLAVE ================= -->
+    <div class="modal-overlay" id="addSlaveModal">
+      <div class="modal-box">
+        <h2>
+          <i class="bi bi-plus-circle-fill"></i>
+          Ajouter un Slave
+        </h2>
+        <p>Configurez le nouveau module esclave</p>
+
+        <div class="input-group" style="margin-top:20px;">
+          <label><i class="bi bi-tag-fill"></i> Nom du slave</label>
+          <input type="text" id="newSlaveId" placeholder="Ex: Slave-1, Entrée-VIP" maxlength="20" />
+        </div>
+        <div class="input-group">
+          <label><i class="bi bi-cpu"></i> Adresse MAC</label>
+          <input type="text" id="newSlaveMAC" placeholder="AA:BB:CC:DD:EE:FF" />
+        </div>
+        <!-- Champs masqués (gérés automatiquement) -->
+        <div style="display:none;">
+          <div class="input-group">
+            <label><i class="bi bi-wifi"></i> SSID WiFi Master</label>
+            <input type="text" id="newSlaveSSID" placeholder="SmartCount-XXX" />
+          </div>
+          <div class="input-group">
+            <label><i class="bi bi-lock-fill"></i> Mot de passe Master</label>
+            <input type="password" id="newSlavePassword" placeholder="Fortico1234" />
+          </div>
+        </div>
+
+        <div style="display:flex; gap:10px; margin-top:10px;">
+          <button class="btn" onclick="confirmAddSlave()" style="flex:1;">
+            <i class="bi bi-check-circle"></i>
+            Confirmer
+          </button>
+          <button class="btn btn-danger" onclick="closeAddSlaveModal()" style="flex:1;">
+            <i class="bi bi-x-circle"></i>
+            Annuler
+          </button>
+        </div>
       </div>
     </div>
 
