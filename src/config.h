@@ -13,7 +13,7 @@
 #define ECHO_PIN   32
 #define SEUIL_DEFAULT  80    // Valeur par défaut du seuil (cm)
 #define SEUIL_MIN       10   // Seuil minimum autorisé (cm)
-#define SEUIL_MAX      500   // Seuil maximum autorisé (cm)
+#define SEUIL_MAX      100   // Seuil maximum autorisé (cm)
 
 //              Buzzer et LED                                                                                                                                                                                                                                                 
 #define BUZZER_PIN 5

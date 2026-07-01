@@ -14,10 +14,10 @@ String staSSID     = "";
 String staPassword = "";
 
 // MQTT
-String mqttServer = "192.168.1.2";
-int mqttPort      = 1883;
-String mqttUser     = "";
-String mqttPassword = "";
+String mqttServer = "53cc1d1dc297463f9f511baf26ee908e.s1.eu.hivemq.cloud";
+int mqttPort      = 8883;
+String mqttUser     = "Fortico";
+String mqttPassword = "Fortico123456";
 
 bool mqttTriggerSetup = false;
 bool requestReboot = false;

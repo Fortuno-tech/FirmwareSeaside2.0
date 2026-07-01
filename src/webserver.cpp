@@ -546,7 +546,7 @@ void setupServer() {
       }
       int newSeuil = doc["seuil"].as<int>();
       if (newSeuil < SEUIL_MIN || newSeuil > SEUIL_MAX) {
-        request->send(400, "application/json", "{\"error\":\"Valeur hors limites (10-500 cm)\"}");
+        request->send(400, "application/json", "{\"error\":\"Valeur hors limites (10-100 cm)\"}");
         return;
       }
 

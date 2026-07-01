@@ -1,27 +1,27 @@
 #include "mqtt.h"
 #include "config.h"
 #include <WiFi.h>
+#include <WiFiClientSecure.h>
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
+#include "storage.h"
 
-// Config MQTT
-const char* MQTT_SERVER = "192.168.1.2";
-const int   MQTT_PORT   = 1883;
-const char* MQTT_USER   = "";
-const char* MQTT_PASS   = "";
+// Config MQTT local fallbacks
+const char* MQTT_SERVER = "53cc1d1dc297463f9f511baf26ee908e.s1.eu.hivemq.cloud";
+const int   MQTT_PORT   = 8883;
+const char* MQTT_USER   = "Fortico";
+const char* MQTT_PASS   = "Fortico123456";
 
 // Topics
-const char* TOPIC_COUNT  = "seaside/count";
-const char* TOPIC_CONFIG = "seaside/config";
-const char* TOPIC_STATUS = "seaside/status";
+const char* TOPIC_ALERTE = "seaside/alerte";
 
-WiFiClient espClient;
+WiFiClientSecure espClient;
 PubSubClient mqttClient(espClient);
 
 // Callback réception messages MQTT
 void onMQTTMessage(char* topic, byte* payload, unsigned int length) {
   String msg = "";
-  for (int i = 0; i < length; i++) {
+  for (unsigned int i = 0; i < length; i++) {
     msg += (char)payload[i];
   }
 
@@ -30,10 +30,29 @@ void onMQTTMessage(char* topic, byte* payload, unsigned int length) {
   Serial.print("] : ");
   Serial.println(msg);
 
-  // Commande config reçue
-  if (String(topic) == TOPIC_CONFIG) {
-    StaticJsonDocument<200> doc;
-    deserializeJson(doc, msg);
+  // Vérifier si le topic est seaside/config/{macAddress}
+  String topicStr = String(topic);
+  String myMac = WiFi.macAddress();
+  String myMacNoColons = myMac;
+  myMacNoColons.replace(":", "");
+
+  if (topicStr.endsWith(myMac) || topicStr.endsWith(myMacNoColons)) {
+    StaticJsonDocument<256> doc;
+    DeserializationError error = deserializeJson(doc, msg);
+    if (!error) {
+      if (doc.containsKey("seuil")) {
+        int val = doc["seuil"].as<int>();
+        if (val >= SEUIL_MIN && val <= SEUIL_MAX) {
+          seuil = val;
+          storage_saveConfig();
+          Serial.printf("[MQTT] Seuil mis à jour à %d cm depuis MQTT\n", seuil);
+        } else {
+          mqttPublishAlert("Erreur configuration: seuil hors limites (" + String(val) + " cm)");
+        }
+      }
+    } else {
+      Serial.println("[MQTT] Erreur deserialisation JSON config");
+    }
   }
 }
 
@@ -42,7 +61,7 @@ static unsigned long lastWifiCheck = 0;
 static bool wasWifiConnected = false;
 
 bool connectMQTTNonBlocking() {
-  Serial.print("Essai de connexion MQTT vers ");
+  Serial.print("Essai de connexion MQTT SSL vers ");
   Serial.print(mqttServer);
   Serial.print(":");
   Serial.print(mqttPort);
@@ -64,8 +83,17 @@ bool connectMQTTNonBlocking() {
 
   if (connected) {
     Serial.println("✓ MQTT connecté !");
-    mqttClient.subscribe(TOPIC_CONFIG);
-    mqttClient.subscribe(TOPIC_STATUS);
+    
+    // Souscrire à seaside/config/{macAddress}
+    String topicConfig = "seaside/config/" + WiFi.macAddress();
+    mqttClient.subscribe(topicConfig.c_str());
+    Serial.printf("[MQTT] Souscrit à %s\n", topicConfig.c_str());
+    
+    String topicConfigNoColons = "seaside/config/" + WiFi.macAddress();
+    topicConfigNoColons.replace(":", "");
+    mqttClient.subscribe(topicConfigNoColons.c_str());
+    Serial.printf("[MQTT] Souscrit à %s\n", topicConfigNoColons.c_str());
+    
     return true;
   } else {
     Serial.print("✗ Échec connexion MQTT, rc=");
@@ -83,6 +111,9 @@ void setupMQTT(const char* ssid, const char* password) {
     Serial.println(ssid);
     WiFi.begin(ssid, password);
   }
+
+  // Activer le mode non sécurisé de WiFiClientSecure pour ne pas valider le certificat de façon stricte (évite de stocker un certificat racine qui expire)
+  espClient.setInsecure();
 
   // Configuration de MQTT en utilisant les variables globales
   if (mqttClient.connected()) {
@@ -137,8 +168,57 @@ void handleMQTT() {
 void mqttPublishCount(int total, int current) {
   if (mqttClient.connected()) {
     String msg = webserver_getMqttPayloadJson();
-    mqttClient.publish(TOPIC_COUNT, msg.c_str());
-    Serial.print("MQTT publié : ");
+    mqttClient.publish("seaside/telemetry/master", msg.c_str());
+    Serial.print("MQTT publié (seaside/telemetry/master) : ");
     Serial.println(msg);
+  }
+}
+
+void mqttPublishEntry() {
+  if (mqttClient.connected()) {
+    String categoryId = (licenseCode.length() > 0) ? licenseCode : "default";
+    String topic = "seaside/entrees/" + categoryId;
+    
+    StaticJsonDocument<256> doc;
+    doc["mac"] = WiFi.macAddress();
+    doc["moduleId"] = moduleId;
+    doc["timestamp"] = millis();
+    
+    String msg;
+    serializeJson(doc, msg);
+    mqttClient.publish(topic.c_str(), msg.c_str());
+    Serial.printf("MQTT entrée publiée (%s) : %s\n", topic.c_str(), msg.c_str());
+  }
+}
+
+void mqttPublishSlaveTelemetry(const char* slaveId, const char* mac, int count, int seuil, bool active) {
+  if (mqttClient.connected()) {
+    String topic = "seaside/telemetry/slave/" + String(slaveId);
+    
+    StaticJsonDocument<256> doc;
+    doc["slaveId"] = slaveId;
+    doc["mac"] = mac;
+    doc["count"] = count;
+    doc["seuil"] = seuil;
+    doc["active"] = active;
+    
+    String msg;
+    serializeJson(doc, msg);
+    mqttClient.publish(topic.c_str(), msg.c_str());
+    Serial.printf("MQTT télémétrie esclave publiée (%s) : %s\n", topic.c_str(), msg.c_str());
+  }
+}
+
+void mqttPublishAlert(const String& message) {
+  if (mqttClient.connected()) {
+    StaticJsonDocument<256> doc;
+    doc["mac"] = WiFi.macAddress();
+    doc["moduleId"] = moduleId;
+    doc["alerte"] = message;
+    
+    String msg;
+    serializeJson(doc, msg);
+    mqttClient.publish(TOPIC_ALERTE, msg.c_str());
+    Serial.printf("MQTT alerte publiée : %s\n", msg.c_str());
   }
 }

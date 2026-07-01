@@ -3,6 +3,7 @@
 #include "webserver.h"
 #include "storage.h"
 #include "display.h"
+#include "mqtt.h"
 #include <esp_now.h>
 #include <WiFi.h>
 
@@ -160,6 +161,19 @@ void onDataReceived(const uint8_t* mac, const uint8_t* data, int len) {
 
       triggerImmediateDisplayUpdate();
       webserver_broadcastCount(totalPersonnes);
+
+      // Publier les entrées individuelles si diff > 0
+      if (diff > 0) {
+        for (int i = 0; i < diff; i++) {
+          mqttPublishEntry();
+        }
+      }
+
+      // Publier la télémétrie de l'esclave
+      char macStr[18];
+      snprintf(macStr, sizeof(macStr), "%02X:%02X:%02X:%02X:%02X:%02X", 
+               mac[0], mac[1], mac[2], mac[3], mac[4], mac[5]);
+      mqttPublishSlaveTelemetry(s_packetReceived.moduleId, macStr, s_packetReceived.count, s_packetReceived.seuil, true);
     }
   }
 }

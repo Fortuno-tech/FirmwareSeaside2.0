@@ -170,6 +170,7 @@ static void handleUltrasonic() {
         if (moduleRole == "master") {
           totalPersonnes++;
           personnesActuelles++;
+          mqttPublishEntry();
         }
         triggerImmediateDisplayUpdate();
         int valToShow = (moduleRole == "master") ? totalPersonnes : compteur;

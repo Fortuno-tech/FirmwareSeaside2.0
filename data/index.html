@@ -430,20 +430,20 @@
                 <div class="input-group">
                   <label>
                     <i class="bi bi-sliders"></i>
-                    Curseur (10 – 500 cm)
+                    Curseur (10 – 100 cm)
                   </label>
                   <input
                     type="range"
                     id="seuilSlider"
                     min="10"
-                    max="500"
+                    max="100"
                     value="80"
                     step="1"
                     style="width:100%; accent-color:var(--accent); cursor:pointer; margin-top:8px;"
                     oninput="syncSeuilSlider(this.value)"
                   />
                   <div style="display:flex; justify-content:space-between; font-size:12px; color:var(--text-muted); margin-top:4px;">
-                    <span>10 cm</span><span>500 cm</span>
+                    <span>10 cm</span><span>100 cm</span>
                   </div>
                 </div>
                 <div class="input-group">
@@ -455,7 +455,7 @@
                     type="number"
                     id="seuilInput"
                     min="10"
-                    max="500"
+                    max="100"
                     value="80"
                     placeholder="Ex: 80"
                     oninput="syncSeuilInput(this.value)"
