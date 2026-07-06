@@ -88,10 +88,25 @@ function showPage(page, element) {
 }
 
 // ================= PASSWORD MODAL =================
-let currentParamElement = null;
+let currentAccessElement = null;
+let currentAccessTarget = "parametre";
 
-function openPasswordModal(element) {
-  currentParamElement = element;
+function openPasswordModal(element, targetPage = "parametre") {
+  currentAccessElement = element;
+  currentAccessTarget = targetPage;
+
+  const modalTitle = document.getElementById("passwordModalTitleText");
+  const modalSubtitle = document.getElementById("passwordModalSubtitle");
+
+  if (modalTitle) {
+    modalTitle.textContent = targetPage === "licence" ? "Accès Licence" : "Accès Paramètre";
+  }
+  if (modalSubtitle) {
+    modalSubtitle.textContent = targetPage === "licence"
+      ? "Veuillez saisir le mot de passe pour accéder à la licence"
+      : "Veuillez saisir le mot de passe";
+  }
+
   if (window.innerWidth <= 768) {
     document.getElementById("sidebar").classList.remove("active");
   }
@@ -110,7 +125,7 @@ function confirmPassword() {
   if (password === "1112") {
     document.getElementById("passwordModal").classList.remove("active");
     showToast("Accès autorisé", "success");
-    setTimeout(() => showPage("parametre", currentParamElement), 400);
+    setTimeout(() => showPage(currentAccessTarget, currentAccessElement), 400);
     return;
   }
   document.getElementById("passwordError").innerText = "Mot de passe incorrect";

@@ -32,11 +32,11 @@
           <i class="bi bi-hdd-network"></i>
           Module
         </a>
-        <a onclick="showPage('licence', this)">
+        <a onclick="openPasswordModal(this, 'licence')">
           <i class="bi bi-key-fill"></i>
           Licence
         </a>
-        <a onclick="openPasswordModal(this)">
+        <a onclick="openPasswordModal(this, 'parametre')">
           <i class="bi bi-gear-fill"></i>
           Paramètre
         </a>
@@ -476,11 +476,11 @@
     <!-- ================= MODAL PASSWORD ================= -->
     <div class="modal-overlay" id="passwordModal">
       <div class="modal-box">
-        <h2>
+        <h2 id="passwordModalTitle">
           <i class="bi bi-shield-lock-fill"></i>
-          Accès Paramètre
+          <span id="passwordModalTitleText">Accès Paramètre</span>
         </h2>
-        <p>Veuillez saisir le mot de passe</p>
+        <p id="passwordModalSubtitle">Veuillez saisir le mot de passe</p>
         <div class="input-group password-group">
           <input type="password" id="adminPassword" placeholder="••••••••" />
           <i
