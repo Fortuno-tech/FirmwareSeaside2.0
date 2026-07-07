@@ -116,6 +116,30 @@ void onDataReceived(const uint8_t* mac, const uint8_t* data, int len) {
     return;
   }
   
+  // ─── 4. PAQUET RESET (Reçu sur Slave pour remettre son compteur à 0) ───
+  if (s_packetReceived.packetType == PACKET_TYPE_RESET) {
+    if (moduleRole == "slave") {
+      compteur = 0;
+      storage_markDirty();
+      Serial.println("[ESP-NOW] Compteur remis à zéro par le Master");
+      triggerImmediateDisplayUpdate();
+      // Informer le Master du nouveau compteur
+      espnow_sendData((uint8_t*)mac, compteur);
+    }
+    return;
+  }
+
+  // ─── 5. PAQUET FORMAT (Reçu sur Slave pour réinitialiser le module) ───
+  if (s_packetReceived.packetType == PACKET_TYPE_FORMAT) {
+    if (moduleRole == "slave") {
+      Serial.println("[ESP-NOW] Commande de formatage reçue du Master !");
+      storage_format();
+      delay(500);
+      ESP.restart();
+    }
+    return;
+  }
+
   // ─── 3. PAQUET COUNT (Reçu sur Master depuis Slave) ───
   if (moduleRole == "master" && s_packetReceived.packetType == PACKET_TYPE_COUNT) {
     Serial.print("[ESP-NOW] Données de ");
@@ -245,5 +269,20 @@ void espnow_sendConfig(uint8_t* targetMac, int threshold) {
   s_packetToSend.seuil = threshold;
   
   Serial.printf("[ESP-NOW] Envoi de la config de seuil (%d cm) au MAC...\n", threshold);
+  esp_now_send(targetMac, (uint8_t*)&s_packetToSend, sizeof(s_packetToSend));
+}
+
+void espnow_sendReset(uint8_t* targetMac) {
+  espnow_addSlave(targetMac);
+  s_packetToSend.packetType = PACKET_TYPE_RESET;
+  s_packetToSend.count = 0;
+  Serial.printf("[ESP-NOW] Envoi de la commande RESET au MAC...\n");
+  esp_now_send(targetMac, (uint8_t*)&s_packetToSend, sizeof(s_packetToSend));
+}
+
+void espnow_sendFormat(uint8_t* targetMac) {
+  espnow_addSlave(targetMac);
+  s_packetToSend.packetType = PACKET_TYPE_FORMAT;
+  Serial.printf("[ESP-NOW] Envoi de la commande FORMAT au MAC...\n");
   esp_now_send(targetMac, (uint8_t*)&s_packetToSend, sizeof(s_packetToSend));
 }

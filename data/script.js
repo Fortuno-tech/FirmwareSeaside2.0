@@ -88,10 +88,25 @@ function showPage(page, element) {
 }
 
 // ================= PASSWORD MODAL =================
-let currentParamElement = null;
+let currentAccessElement = null;
+let currentAccessTarget = "parametre";
 
-function openPasswordModal(element) {
-  currentParamElement = element;
+function openPasswordModal(element, targetPage = "parametre") {
+  currentAccessElement = element;
+  currentAccessTarget = targetPage;
+
+  const modalTitle = document.getElementById("passwordModalTitleText");
+  const modalSubtitle = document.getElementById("passwordModalSubtitle");
+
+  if (modalTitle) {
+    modalTitle.textContent = targetPage === "licence" ? "Accès Licence" : "Accès Paramètre";
+  }
+  if (modalSubtitle) {
+    modalSubtitle.textContent = targetPage === "licence"
+      ? "Veuillez saisir le mot de passe pour accéder à la licence"
+      : "Veuillez saisir le mot de passe";
+  }
+
   if (window.innerWidth <= 768) {
     document.getElementById("sidebar").classList.remove("active");
   }
@@ -110,7 +125,7 @@ function confirmPassword() {
   if (password === "1112") {
     document.getElementById("passwordModal").classList.remove("active");
     showToast("Accès autorisé", "success");
-    setTimeout(() => showPage("parametre", currentParamElement), 400);
+    setTimeout(() => showPage(currentAccessTarget, currentAccessElement), 400);
     return;
   }
   document.getElementById("passwordError").innerText = "Mot de passe incorrect";
@@ -734,13 +749,71 @@ function randomPart(length) {
   return Array.from(random).map(v => chars[v % chars.length]).join("");
 }
 
-function generateLicense() {
-  return `SMC-${new Date().getFullYear()}-${randomPart(4)}-${randomPart(4)}-${randomPart(4)}-${randomPart(4)}`;
+function generateLicense(mac, expiryMark) {
+  const macClean = (mac || "00:00:00:00:00:00").replace(/:/g, "").toUpperCase();
+  return `SMC-${macClean}-${expiryMark}-${randomPart(4)}`;
+}
+
+function updateLicenseExpiry() {
+  const dateInput = document.getElementById("licenseDate");
+  const durationSelect = document.getElementById("licenseDuration");
+  const expiryInput = document.getElementById("licenseExpiry");
+  const codeInput = document.getElementById("licenseCode");
+  
+  let creationDate = dateInput.dataset.iso ? new Date(dateInput.dataset.iso) : new Date();
+  const duration = parseInt(durationSelect.value);
+  
+  let expiryMark = "00000000";
+  
+  if (duration === 0) {
+    expiryInput.value = "Illimitée";
+    expiryInput.dataset.iso = "";
+  } else {
+    let expiryDate = new Date(creationDate.getTime());
+    expiryDate.setDate(expiryDate.getDate() + duration);
+    expiryInput.value = expiryDate.toLocaleString();
+    expiryInput.dataset.iso = expiryDate.toISOString();
+    
+    const yyyy = expiryDate.getFullYear();
+    const mm = String(expiryDate.getMonth() + 1).padStart(2, '0');
+    const dd = String(expiryDate.getDate()).padStart(2, '0');
+    expiryMark = `${yyyy}${mm}${dd}`;
+  }
+  
+  // Si le code est déjà affiché et commence par SMC, on le régénère avec la nouvelle expiration
+  if (codeInput.value && codeInput.value.startsWith("SMC-")) {
+    let mac = window.deviceMAC || document.getElementById("deviceMAC")?.innerText || "00:00:00:00:00:00";
+    if (mac === "Inconnu" || mac === "—") mac = "00:00:00:00:00:00";
+    codeInput.value = generateLicense(mac, expiryMark);
+  }
 }
 
 function generateNewLicense() {
-  document.getElementById("licenseCode").value = generateLicense();
-  document.getElementById("licenseDate").value = new Date().toLocaleString();
+  const now = new Date();
+  const dateInput = document.getElementById("licenseDate");
+  dateInput.value = now.toLocaleString();
+  dateInput.dataset.iso = now.toISOString();
+  
+  const durationSelect = document.getElementById("licenseDuration");
+  const duration = parseInt(durationSelect.value);
+  
+  let expiryMark = "00000000";
+  if (duration !== 0) {
+    let expiryDate = new Date(now.getTime());
+    expiryDate.setDate(expiryDate.getDate() + duration);
+    const yyyy = expiryDate.getFullYear();
+    const mm = String(expiryDate.getMonth() + 1).padStart(2, '0');
+    const dd = String(expiryDate.getDate()).padStart(2, '0');
+    expiryMark = `${yyyy}${mm}${dd}`;
+  }
+  
+  let mac = window.deviceMAC || document.getElementById("deviceMAC")?.innerText || "00:00:00:00:00:00";
+  if (mac === "Inconnu" || mac === "—") mac = "00:00:00:00:00:00";
+  
+  const code = generateLicense(mac, expiryMark);
+  document.getElementById("licenseCode").value = code;
+  
+  updateLicenseExpiry();
 }
 
 function copyLicense() {
@@ -750,18 +823,55 @@ function copyLicense() {
   showToast("Licence copiée", "success");
 }
 
+function checkLicenseStatus(expiryIso) {
+  const banner = document.getElementById("licenseAlertBanner");
+  if (!banner) return;
+  
+  if (!expiryIso) {
+    banner.style.display = "none";
+    return;
+  }
+  
+  const expiryDate = new Date(expiryIso);
+  const now = new Date();
+  
+  if (expiryDate < now) {
+    banner.style.display = "flex";
+  } else {
+    banner.style.display = "none";
+  }
+}
+
 function sendLicense() {
   const licence = document.getElementById("licenseCode").value;
   if (!licence) { showToast("Générez une licence d'abord", "warning"); return; }
 
-  fetch("http://localhost:3000/licence", {
+  const dateInput = document.getElementById("licenseDate");
+  const durationSelect = document.getElementById("licenseDuration");
+  const expiryInput = document.getElementById("licenseExpiry");
+
+  const payload = {
+    licence: licence,
+    date: dateInput.dataset.iso || new Date().toISOString(),
+    duration: parseInt(durationSelect.value),
+    expiry: expiryInput.dataset.iso || ""
+  };
+
+  fetch("/api/config/license", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ licence, date: new Date().toISOString() }),
+    body: JSON.stringify(payload),
   })
     .then(r => r.json())
-    .then(result => showToast(result.message || "Licence envoyée", "success"))
-    .catch(error => showToast(error.message, "error"));
+    .then(result => {
+      if (result.status === "ok") {
+        showToast("Licence enregistrée sur le module", "success");
+        checkLicenseStatus(payload.expiry);
+      } else {
+        showToast(result.error || "Erreur de sauvegarde", "error");
+      }
+    })
+    .catch(error => showToast("Erreur de connexion : " + error.message, "error"));
 }
 
 // ================= SENSOR THRESHOLD =================
@@ -866,17 +976,76 @@ function updateDeviceStatus() {
         document.getElementById("deviceMAC").innerText = data.mac || "Inconnu";
       if (document.getElementById("deviceRole"))
         document.getElementById("deviceRole").innerText = (data.moduleId ? `${data.moduleId} (${data.role || "neutral"})` : (data.role || "neutral")).toUpperCase();
-      if (document.getElementById("deviceMode"))
-        document.getElementById("deviceMode").innerText = data.connected ? "En ligne (STA + AP)" : "Hors ligne (AP)";
+      if (document.getElementById("deviceMode")) {
+        if (data.role === "slave") {
+          document.getElementById("deviceMode").innerText = data.connected ? "Connecté au Master AP" : "Déconnecté du Master AP";
+        } else {
+          document.getElementById("deviceMode").innerText = data.connected ? "En ligne (STA + AP)" : "Hors ligne (AP)";
+        }
+      }
 
       let dashMode = document.getElementById("dashMode");
       if (dashMode) {
-        dashMode.innerText = data.connected ? "En ligne" : "Hors ligne";
+        if (data.role === "slave") {
+          dashMode.innerText = data.connected ? "Connecté au Master AP" : "Déconnecté du Master AP";
+        } else {
+          dashMode.innerText = data.connected ? "En ligne" : "Hors ligne";
+        }
         let icon = dashMode.parentElement.nextElementSibling?.querySelector("i");
         if (icon) {
           if (data.connected) { icon.className = "bi bi-wifi"; icon.parentElement.className = "card-icon green"; }
           else { icon.className = "bi bi-wifi-off"; icon.parentElement.className = "card-icon red"; }
         }
+      }
+
+      // Mettre à jour la bannière de rôle dynamiquement
+      const roleBannerText = document.getElementById("roleBannerText");
+      const roleBanner     = document.getElementById("roleBanner");
+      if (roleBannerText && data.role) {
+        const isConnected = data.connected;
+        const roleLabels = { 
+          master: "Ce module est le MASTER", 
+          slave: isConnected ? "Ce module est un SLAVE (Connecté au Master)" : "Ce module est un SLAVE (Déconnecté du Master)" 
+        };
+        roleBannerText.textContent = (data.moduleId ? `${data.moduleId} — ` : "") + (data.role.toLowerCase() === "slave" ? (isConnected ? "🔵 " : "🔴 ") : "🟢 ") + (roleLabels[data.role.toLowerCase()] || data.role.toUpperCase());
+        if (roleBanner) {
+          if (data.role.toLowerCase() === "slave" && !isConnected) {
+            roleBanner.style.backgroundColor = "rgba(239, 68, 68, 0.15)";
+            roleBanner.style.border = "1px solid rgba(239, 68, 68, 0.3)";
+            roleBanner.style.color = "#f87171";
+          } else {
+            roleBanner.removeAttribute("style");
+            roleBanner.className = "role-banner role-" + data.role.toLowerCase();
+          }
+        }
+      }
+
+      // Remplir les champs de licence s'ils sont vides ou s'ils changent (et qu'on n'est pas en train d'éditer)
+      if (data.licence && document.getElementById("licenseCode") && !document.getElementById("licenseCode").value) {
+        document.getElementById("licenseCode").value = data.licence;
+        if (data.licenseDate) {
+          const dateInput = document.getElementById("licenseDate");
+          const d = new Date(data.licenseDate);
+          dateInput.value = d.toLocaleString();
+          dateInput.dataset.iso = data.licenseDate;
+        }
+        if (data.licenseDuration !== undefined) {
+          document.getElementById("licenseDuration").value = data.licenseDuration;
+        }
+        if (data.licenseExpiry) {
+          const expiryInput = document.getElementById("licenseExpiry");
+          const exp = new Date(data.licenseExpiry);
+          expiryInput.value = exp.toLocaleString();
+          expiryInput.dataset.iso = data.licenseExpiry;
+        } else if (data.licenseDuration === 0) {
+          document.getElementById("licenseExpiry").value = "Illimitée";
+        }
+      }
+
+      if (data.licenseExpiry) {
+        checkLicenseStatus(data.licenseExpiry);
+      } else if (data.licence && data.licenseDuration === 0) {
+        checkLicenseStatus("");
       }
     })
     .catch(err => console.error("Status Error:", err));
@@ -951,10 +1120,69 @@ function updateModulesCount() {
             <div class="mc-count" id="mc-count-${idx}">${mod.count || 0}</div>
             <div class="mc-label">passages détectés</div>
             <div class="mc-mac"><i class="bi bi-cpu"></i> ${mod.mac || "—"}</div>
+            
+            <div style="margin-top: 10px; display: flex; align-items: center; justify-content: center;">
+              <span style="font-size: 11px; padding: 3px 8px; border-radius: 20px; display: inline-flex; align-items: center; gap: 4px; font-weight: 500; ${isActive ? 'background-color: rgba(16, 185, 129, 0.15); color: #34d399;' : 'background-color: rgba(107, 114, 128, 0.15); color: #9ca3af;'}">
+                <i class="bi ${isActive ? 'bi-wifi' : 'bi-wifi-off'}"></i>
+                ${isActive ? 'Connecté' : 'Déconnecté'}
+              </span>
+            </div>
+
+            <div class="mc-actions" style="display: flex; gap: 8px; margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px;">
+              <button class="btn btn-sm" onclick="resetModule('${mod.mac || ''}')" style="flex: 1; padding: 6px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 4px; background: rgba(59, 130, 246, 0.12); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.2); cursor: pointer; border-radius: 4px;">
+                <i class="bi bi-arrow-counterclockwise"></i> Reset
+              </button>
+              <button class="btn btn-sm" onclick="formatModule('${mod.mac || ''}')" style="flex: 1; padding: 6px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 4px; background: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.2); cursor: pointer; border-radius: 4px;">
+                <i class="bi bi-trash"></i> Format
+              </button>
+            </div>
           </div>
         `;
         grid.appendChild(card);
       });
+
+      // Actions reset / format functions helper
+      window.resetModule = function(mac) {
+        if (!mac) { showToast("Adresse MAC manquante", "error"); return; }
+        if (!confirm(`Voulez-vous réinitialiser le compteur du module (${mac}) ?`)) return;
+        
+        fetch("/api/module/reset", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mac: mac })
+        })
+          .then(r => r.json())
+          .then(result => {
+            if (result.status === "ok") {
+              showToast("Compteur réinitialisé", "success");
+              updateModulesCount();
+            } else {
+              showToast(result.error || "Erreur de réinitialisation", "error");
+            }
+          })
+          .catch(error => showToast("Erreur de connexion", "error"));
+      };
+
+      window.formatModule = function(mac) {
+        if (!mac) { showToast("Adresse MAC manquante", "error"); return; }
+        if (!confirm(`⚠️ ATTENTION : Voulez-vous formater et réinitialiser d'usine le module (${mac}) ? Toutes les configurations seront perdues.`)) return;
+        
+        fetch("/api/module/format", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ mac: mac })
+        })
+          .then(r => r.json())
+          .then(result => {
+            if (result.status === "ok") {
+              showToast("Module formaté et redémarré", "success");
+              updateModulesCount();
+            } else {
+              showToast(result.error || "Erreur lors du formatage", "error");
+            }
+          })
+          .catch(error => showToast("Erreur de connexion", "error"));
+      };
 
       if (select) {
         select.value = currentSelected;

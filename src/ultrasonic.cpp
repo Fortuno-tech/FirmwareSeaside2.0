@@ -20,7 +20,7 @@ float ultrasonic_readDistance() {
   long duree = pulseIn(ECHO_PIN, HIGH, 30000);
 
   // FIX : pulseIn retourne 0 si timeout (aucun écho).
-  // On retourne -1 pour que l'appelant distingue "pas d'écho" de "objet à 0 cm".
+  
   if (duree == 0) return -1.0f;
 
   // Conversion en cm (vitesse son ≈ 0.034 cm/µs, aller-retour /2)

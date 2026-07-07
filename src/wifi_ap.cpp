@@ -47,24 +47,54 @@ void modifierAP(String newSSID, String newPassword) {
 
 void handleSlaveAnnounce() {
   if (moduleRole != "slave") return;
-  if (WiFi.status() != WL_CONNECTED) return;
 
   unsigned long now = millis();
-  static unsigned long lastAnnounce = 0;
+  static unsigned long lastAnnounce    = 0;
+  static unsigned long lastWifiRetry   = 0;
+  static bool          wasConnected    = false;
 
+  // ── Reconnexion automatique si WiFi perdu ───────────────────────────────
+  if (WiFi.status() != WL_CONNECTED) {
+    if (wasConnected) {
+      Serial.println("[Slave] WiFi Master perdu ! Tentative de reconnexion...");
+      wasConnected = false;
+    }
+    // Réessayer toutes les 15 secondes
+    if (now - lastWifiRetry >= 15000 || lastWifiRetry == 0) {
+      lastWifiRetry = now;
+      if (staSSID != "") {
+        Serial.print("[Slave] Reconnexion WiFi vers Master AP : ");
+        Serial.println(staSSID);
+        WiFi.disconnect(false);
+        delay(200);
+        WiFi.begin(staSSID.c_str(), staPassword.c_str());
+      }
+    }
+    return; // Pas d'annonce si non connecté
+  }
+
+  // WiFi connecté
+  if (!wasConnected) {
+    Serial.print("[Slave] WiFi Master reconnecté ! IP : ");
+    Serial.println(WiFi.localIP());
+    wasConnected  = true;
+    lastAnnounce  = 0;  // Force announce immédiatement
+  }
+
+  // ── Annonce périodique au Master (toutes les 10 s) ──────────────────────
   if (now - lastAnnounce >= 10000 || lastAnnounce == 0) {
     lastAnnounce = now;
-    
+
     IPAddress gateway = WiFi.gatewayIP();
     if (gateway.toString() == "0.0.0.0") return;
 
     WiFiClient client;
     HTTPClient http;
     String url = "http://" + gateway.toString() + "/api/register_slave";
-    
+
     http.begin(client, url);
     http.addHeader("Content-Type", "application/json");
-    http.setTimeout(2000); // 2 s timeout non bloquant
+    http.setTimeout(2000);
 
     StaticJsonDocument<256> doc;
     doc["mac"]      = WiFi.macAddress();

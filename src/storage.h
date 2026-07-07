@@ -22,7 +22,13 @@ void storage_update(int valeur);
 
 // ─── Configuration ───────────────────────────────────────────────────────────
 bool storage_loadConfig();
-void storage_saveConfig();
+bool storage_saveConfig();
+#include <WiFi.h>
+
+// Generate a license with a given duration (days)
+bool storage_generateLicense(int durationDays);
+// Validate current license (checks expiry)
+bool storage_isLicenseValid();
 
 // ─── Formatage (debug) ───────────────────────────────────────────────────────
 void storage_format();

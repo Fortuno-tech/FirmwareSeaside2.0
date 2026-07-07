@@ -1,4 +1,5 @@
 #include "storage.h"
+#include <WiFi.h>
 #include "config.h"
 #include <LittleFS.h>
 #include <ArduinoJson.h>
@@ -82,7 +83,7 @@ bool storage_loadConfig() {
     return false;
   }
 
-  StaticJsonDocument<600> doc;
+  StaticJsonDocument<1024> doc;
   DeserializationError error = deserializeJson(doc, file);
   file.close();
 
@@ -104,6 +105,9 @@ bool storage_loadConfig() {
   if (doc.containsKey("moduleId")) moduleId = doc["moduleId"].as<String>();
   if (doc.containsKey("isMasterConfigured")) isMasterConfigured = doc["isMasterConfigured"].as<bool>();
   if (doc.containsKey("licenseCode"))        licenseCode = doc["licenseCode"].as<String>();
+  if (doc.containsKey("licenseDate"))        licenseDate = doc["licenseDate"].as<String>();
+  if (doc.containsKey("licenseDuration"))    licenseDuration = doc["licenseDuration"].as<int>();
+  if (doc.containsKey("licenseExpiry"))      licenseExpiry = doc["licenseExpiry"].as<String>();
   if (doc.containsKey("seuil")) {
     int val = doc["seuil"].as<int>();
     if (val >= SEUIL_MIN && val <= SEUIL_MAX) seuil = val;
@@ -120,7 +124,7 @@ void storage_saveConfig() {
     return;
   }
 
-  StaticJsonDocument<700> doc;
+  StaticJsonDocument<1024> doc;
   doc["apSSID"] = apSSID;
   doc["apPassword"] = apPassword;
   doc["moduleRole"] = moduleRole;
@@ -135,6 +139,9 @@ void storage_saveConfig() {
   doc["moduleId"] = moduleId;
   doc["isMasterConfigured"] = isMasterConfigured;
   doc["licenseCode"] = licenseCode;
+  doc["licenseDate"] = licenseDate;
+  doc["licenseDuration"] = licenseDuration;
+  doc["licenseExpiry"] = licenseExpiry;
 
   if (serializeJson(doc, file) == 0) {
     Serial.println("✗ Erreur: échec de l'écriture dans config.json");
@@ -143,6 +150,32 @@ void storage_saveConfig() {
   }
   file.close();
 }
+
+// ---------- License helpers ----------
+// Generate a license based on device MAC, current time and duration (days)
+bool storage_generateLicense(int durationDays) {
+  String mac = WiFi.macAddress();
+  mac.replace(":", ""); // compact MAC as code
+  unsigned long start = millis();
+  unsigned long expiry = start + (unsigned long)durationDays * 86400000UL; // days to ms
+  licenseCode = mac;
+  licenseDate = String(start);
+  licenseDuration = durationDays;
+  licenseExpiry = String(expiry);
+  // Persist to config
+  storage_saveConfig();
+  Serial.printf("[License] Generated code=%s, start=%s, duration=%d, expiry=%s\n",
+                licenseCode.c_str(), licenseDate.c_str(), licenseDuration, licenseExpiry.c_str());
+  return true;
+}
+
+// Check if stored license is still valid (based on expiry timestamp)
+bool storage_isLicenseValid() {
+  if (licenseExpiry.length() == 0) return false;
+  unsigned long expiry = strtoul(licenseExpiry.c_str(), nullptr, 10);
+  return millis() <= expiry;
+}
+
 
 // ─────────────────────────────────────────────────────────────────────────────
 

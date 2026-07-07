@@ -54,16 +54,74 @@ void setupServer() {
   });
   server.addHandler(&ws);
 
-  // ─── GET /api/status ──────────────────────────────────────────────────────
-  server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* request) {
-    StaticJsonDocument<300> doc;
-    doc["total"]     = totalPersonnes;
-    doc["current"]   = personnesActuelles;
-    doc["role"]      = moduleRole;
-    doc["moduleId"]  = moduleId;
-    doc["ip"]        = (moduleRole == "slave") ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
-    doc["mac"]       = WiFi.macAddress();
-    doc["connected"] = (WiFi.status() == WL_CONNECTED);
+// ─── POST /api/license/generate ──────────────────────────────────────────────
+  server.on("/api/license/generate", HTTP_POST, [] (AsyncWebServerRequest* request) {}, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      StaticJsonDocument<256> doc;
+      deserializeJson(doc, data, len);
+      int duration = doc["durationDays"] | 30; // default 30 days
+      if (storage_generateLicense(duration)) {
+        StaticJsonDocument<256> resp;
+        resp["licenseCode"] = licenseCode;
+        resp["licenseDate"] = licenseDate;
+        resp["licenseDuration"] = licenseDuration;
+        resp["licenseExpiry"] = licenseExpiry;
+        String out;
+        serializeJson(resp, out);
+        request->send(200, "application/json", out);
+      } else {
+        request->send(500, "application/json", "{\"error\":\"generation_failed\"}");
+      }
+    });
+
+  // ─── POST /api/module/reset ─────────────────────────────────────────────────────
+  server.on("/api/module/reset", HTTP_POST, [] (AsyncWebServerRequest* request) {}, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      StaticJsonDocument<256> doc;
+      deserializeJson(doc, data, len);
+      String targetId = doc["moduleId"].as<String>();
+      if (targetId == moduleId) {
+        // Reset master counters
+        compteur = 0;
+        totalPersonnes = 0;
+        personnesActuelles = 0;
+        storage_saveConfig();
+        request->send(200, "application/json", "{\"status\":\"master_reset\"}");
+      } else {
+        // For slaves, send a reset command via MQTT (topic "seaside/command/reset/<moduleId>")
+        String topic = "seaside/command/reset/" + targetId;
+        if (mqttClient.connected()) {
+          mqttClient.publish(topic.c_str(), "reset");
+          request->send(200, "application/json", "{\"status\":\"reset_sent\"}");
+        } else {
+          request->send(503, "application/json", "{\"error\":\"mqtt_not_connected\"}");
+        }
+      }
+    });
+
+  // ─── POST /api/format ────────────────────────────────────────────────────────
+  server.on("/api/format", HTTP_POST, [] (AsyncWebServerRequest* request) {}, NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      storage_format();
+      request->send(200, "application/json", "{\"status\":\"formatted\"}");
+    });
+
+  // Insert license validation check before publishing telemetry
+  // (modify existing mqttPublishEntry below)
+
+    StaticJsonDocument<512> doc;
+    doc["total"]           = totalPersonnes;
+    doc["current"]         = personnesActuelles;
+    doc["role"]            = moduleRole;
+    doc["moduleId"]        = moduleId;
+    doc["ip"]              = (moduleRole == "slave") ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
+    doc["mac"]             = WiFi.macAddress();
+    doc["connected"]       = (WiFi.status() == WL_CONNECTED);
+    doc["battery"]         = 100;
+    doc["licence"]         = licenseCode;
+    doc["licenseDate"]     = licenseDate;
+    doc["licenseDuration"] = licenseDuration;
+    doc["licenseExpiry"]   = licenseExpiry;
     String response;
     serializeJson(doc, response);
     request->send(200, "application/json", response);
@@ -180,6 +238,8 @@ void setupServer() {
     masterObj["count"]    = compteur;   // compteur local du master
     masterObj["seuil"]    = seuil;
     masterObj["active"]   = true;
+    masterObj["battery"]  = 100;        // placeholder (ADC non câblé)
+    masterObj["licence"]  = licenseCode;
     
     unsigned long now = millis();
     
@@ -609,50 +669,226 @@ void setupServer() {
     request->send(404, "application/json", "{\"error\":\"Not found\"}");
   });
 
+  // ─── POST /api/reset/count ────────────────────────────────────────────────
+  server.on("/api/reset/count", HTTP_POST, [](AsyncWebServerRequest* request) {
+    compteur           = 0;
+    totalPersonnes     = 0;
+    personnesActuelles = 0;
+    storage_markDirty();
+    webserver_broadcastCount(0);
+    // Also reset all registered slaves counts (display only)
+    for (auto& s : s_registeredSlaves) {
+      s.count = 0;
+    }
+    Serial.println("[API] Reset comptage demandé depuis le dashboard.");
+    request->send(200, "application/json", "{\"status\":\"ok\"}");
+  });
+
+  // ─── POST /api/reset/module ───────────────────────────────────────────────
+  server.on("/api/reset/module", HTTP_POST, [](AsyncWebServerRequest* request) {
+    request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Redemarrage en cours\"}");
+    requestReboot = true;
+    rebootTimer   = millis();
+    Serial.println("[API] Redémarrage module demandé depuis le dashboard.");
+  });
+
+  // ─── POST /api/reset/format ───────────────────────────────────────────────
+  server.on("/api/reset/format", HTTP_POST, [](AsyncWebServerRequest* request) {
+    request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Formatage et redemarrage en cours\"}");
+    shouldFormat  = true;
+    requestReboot = true;
+    rebootTimer   = millis();
+    Serial.println("[API] Formatage module demandé.");
+  });
+
+  // ─── POST /api/config/license ──────────────────────────────────────────────
+  server.on("/api/config/license", HTTP_POST,
+    [](AsyncWebServerRequest* request) {},
+    NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      StaticJsonDocument<512> doc;
+      deserializeJson(doc, data, len);
+      
+      if (doc.containsKey("licence")) licenseCode = doc["licence"].as<String>();
+      else if (doc.containsKey("licenseCode")) licenseCode = doc["licenseCode"].as<String>();
+      
+      if (doc.containsKey("date")) licenseDate = doc["date"].as<String>();
+      if (doc.containsKey("duration")) licenseDuration = doc["duration"].as<int>();
+      if (doc.containsKey("expiry")) licenseExpiry = doc["expiry"].as<String>();
+      
+      storage_saveConfig();
+      request->send(200, "application/json", "{\"status\":\"ok\"}");
+    }
+  );
+
+  // ─── POST /api/module/reset ───────────────────────────────────────────────
+  server.on("/api/module/reset", HTTP_POST,
+    [](AsyncWebServerRequest* request) {},
+    NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      StaticJsonDocument<256> doc;
+      deserializeJson(doc, data, len);
+      if (doc.containsKey("mac")) {
+        String targetMac = doc["mac"].as<String>();
+        
+        // Reset local Master module
+        if (targetMac.equalsIgnoreCase(WiFi.macAddress())) {
+          if (moduleRole == "master") {
+            totalPersonnes -= compteur;
+            if (totalPersonnes < 0) totalPersonnes = 0;
+            personnesActuelles = totalPersonnes;
+          }
+          compteur = 0;
+          storage_markDirty();
+          triggerImmediateDisplayUpdate();
+          int valToShow = (moduleRole == "master") ? totalPersonnes : compteur;
+          webserver_broadcastCount(valToShow);
+          request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Compteur Master reset\"}");
+          return;
+        }
+        
+        // Reset Slave module (ESP-NOW)
+        uint8_t macBytes[6];
+        int macVal[6];
+        if (sscanf(targetMac.c_str(), "%x:%x:%x:%x:%x:%x", 
+            &macVal[0], &macVal[1], &macVal[2], &macVal[3], &macVal[4], &macVal[5]) == 6) {
+          for (int i = 0; i < 6; i++) macBytes[i] = (uint8_t)macVal[i];
+          espnow_sendReset(macBytes);
+        }
+        
+        // Reset Slave count locally on Master records
+        for (auto& s : s_registeredSlaves) {
+          if (s.mac.equalsIgnoreCase(targetMac)) {
+            int diff = -s.count;
+            s.count = 0;
+            s.lastSeen = millis();
+            totalPersonnes += diff;
+            if (totalPersonnes < 0) totalPersonnes = 0;
+            personnesActuelles = totalPersonnes;
+            break;
+          }
+        }
+        
+        triggerImmediateDisplayUpdate();
+        webserver_broadcastCount(totalPersonnes);
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+      } else {
+        request->send(400, "application/json", "{\"error\":\"MAC manquante\"}");
+      }
+    }
+  );
+
+  // ─── POST /api/module/format ──────────────────────────────────────────────
+  server.on("/api/module/format", HTTP_POST,
+    [](AsyncWebServerRequest* request) {},
+    NULL,
+    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
+      StaticJsonDocument<256> doc;
+      deserializeJson(doc, data, len);
+      if (doc.containsKey("mac")) {
+        String targetMac = doc["mac"].as<String>();
+        
+        // Format local Master module
+        if (targetMac.equalsIgnoreCase(WiFi.macAddress())) {
+          request->send(200, "application/json", "{\"status\":\"ok\",\"message\":\"Formatage Master lancé\"}");
+          shouldFormat  = true;
+          requestReboot = true;
+          rebootTimer   = millis();
+          return;
+        }
+        
+        // Format Slave module (ESP-NOW)
+        uint8_t macBytes[6];
+        int macVal[6];
+        if (sscanf(targetMac.c_str(), "%x:%x:%x:%x:%x:%x", 
+            &macVal[0], &macVal[1], &macVal[2], &macVal[3], &macVal[4], &macVal[5]) == 6) {
+          for (int i = 0; i < 6; i++) macBytes[i] = (uint8_t)macVal[i];
+          espnow_sendFormat(macBytes);
+        }
+        
+        // Remove from local Master lists
+        for (auto it = s_registeredSlaves.begin(); it != s_registeredSlaves.end(); ++it) {
+          if (it->mac.equalsIgnoreCase(targetMac)) {
+            s_registeredSlaves.erase(it);
+            break;
+          }
+        }
+        
+        request->send(200, "application/json", "{\"status\":\"ok\"}");
+      } else {
+        request->send(400, "application/json", "{\"error\":\"MAC manquante\"}");
+      }
+    }
+  );
+
   server.begin();
   Serial.println("Serveur démarré !");
 }
 
 void webserver_broadcastCount(int val) {
-  ws.textAll(String(val));
+  // Broadcast as JSON so the front-end can sync total
+  String json = "{\"total\":" + String(val) + "}";
+  ws.textAll(json);
 }
 
 String webserver_getMqttPayloadJson() {
   DynamicJsonDocument doc(4096);
   
-  doc["battery"]      = 100; // default value
-  doc["license"]      = licenseCode;
+  unsigned long now = millis();
+
+  // Métadonnées globales
+  doc["timestamp"]    = now;
+  doc["battery"]      = 100;          // placeholder ADC
+  doc["licence"]      = licenseCode;
   doc["total"]        = totalPersonnes;
   doc["current"]      = personnesActuelles;
-  
+  doc["ip"]           = WiFi.localIP().toString();
+  doc["connected"]    = (WiFi.status() == WL_CONNECTED);
+
+  // Sous-objet master
+  JsonObject masterObj = doc.createNestedObject("master");
+  masterObj["moduleId"]  = moduleId;
+  masterObj["role"]      = moduleRole;
+  masterObj["mac"]       = WiFi.macAddress();
+  masterObj["count"]     = compteur;
+  masterObj["seuil"]     = seuil;
+  masterObj["battery"]   = 100;
+  masterObj["active"]    = true;
+  masterObj["licence"]   = licenseCode;
+
+  // Tableau détaillé de tous les modules
   JsonArray modules = doc.createNestedArray("modules");
-  
-  // Add Master
-  JsonObject masterObj = modules.createNestedObject();
-  masterObj["moduleId"] = moduleId;
-  masterObj["role"]     = moduleRole;
-  masterObj["mac"]      = WiFi.macAddress();
-  masterObj["count"]    = compteur;
-  masterObj["seuil"]    = seuil;
-  masterObj["active"]   = true;
-  
-  unsigned long now = millis();
+
+  // Master entry
+  JsonObject masterMod = modules.createNestedObject();
+  masterMod["moduleId"] = moduleId;
+  masterMod["role"]     = "master";
+  masterMod["mac"]      = WiFi.macAddress();
+  masterMod["count"]    = compteur;
+  masterMod["seuil"]    = seuil;
+  masterMod["battery"]  = 100;
+  masterMod["active"]   = true;
+
   int numModules = 1;
-  
-  // Add registered slaves
+  int slavesTotal = 0;
+
+  // Slaves HTTP
   for (const auto& s : s_registeredSlaves) {
+    bool isActive = (now - s.lastSeen < 30000);
     JsonObject obj = modules.createNestedObject();
     obj["moduleId"] = s.moduleId;
     obj["role"]     = "slave";
     obj["mac"]      = s.mac;
+    obj["ip"]       = s.ip;
     obj["count"]    = s.count;
     obj["seuil"]    = s.seuil;
-    bool isActive   = (now - s.lastSeen < 30000);
+    obj["battery"]  = 100;   // slaves n'ont pas encore ADC
     obj["active"]   = isActive;
-    if (isActive) numModules++;
+    obj["source"]   = "wifi";
+    if (isActive) { numModules++; slavesTotal += s.count; }
   }
-  
-  // Add ESP-NOW slaves
+
+  // Slaves ESP-NOW
   int espNowCount = espnow_getSlaveCount();
   for (int i = 0; i < espNowCount; i++) {
     char macBuf[18], idBuf[20];
@@ -671,14 +907,18 @@ String webserver_getMqttPayloadJson() {
         obj["mac"]      = String(macBuf);
         obj["count"]    = cnt;
         obj["seuil"]    = slvSeuil;
+        obj["battery"]  = 100;
         obj["active"]   = active;
-        if (active) numModules++;
+        obj["source"]   = "espnow";
+        if (active) { numModules++; slavesTotal += cnt; }
       }
     }
   }
-  
-  doc["modulesCount"] = numModules;
-  
+
+  doc["modulesCount"]  = numModules;
+  doc["masterCount"]   = compteur;
+  doc["slavesTotal"]   = slavesTotal;
+
   String output;
   serializeJson(doc, output);
   return output;

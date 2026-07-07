@@ -62,6 +62,10 @@ extern unsigned long rebootTimer;
 extern String moduleId;          // Identifiant unique du module (ex: "Master", "Slave-1")
 extern bool isMasterConfigured;  // true si un rôle a déjà été attribué (sauvegardé en flash)
 extern String licenseCode;       // Code de licence du produit (Master)
+extern String licenseDate;       // Date de création de la licence
+extern int licenseDuration;      // Durée de validité en jours
+extern String licenseExpiry;     // Date d'expiration de la licence
+extern bool shouldFormat;
 
 #endif // CONFIG_H
 

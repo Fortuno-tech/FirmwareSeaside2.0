@@ -178,12 +178,18 @@ void mqttPublishEntry() {
   if (mqttClient.connected()) {
     String categoryId = (licenseCode.length() > 0) ? licenseCode : "default";
     String topic = "seaside/entrees/" + categoryId;
-    
-    StaticJsonDocument<256> doc;
-    doc["mac"] = WiFi.macAddress();
-    doc["moduleId"] = moduleId;
-    doc["timestamp"] = millis();
-    
+
+    StaticJsonDocument<512> doc;
+    doc["mac"]         = WiFi.macAddress();
+    doc["moduleId"]    = moduleId;
+    doc["role"]        = moduleRole;
+    doc["count"]       = compteur;        // compteur local master à cet instant
+    doc["total"]       = totalPersonnes;  // total tous modules
+    doc["battery"]     = 100;             // placeholder
+    doc["licence"]     = licenseCode;
+    doc["timestamp"]   = millis();
+    doc["connected"]   = (WiFi.status() == WL_CONNECTED);
+
     String msg;
     serializeJson(doc, msg);
     mqttClient.publish(topic.c_str(), msg.c_str());

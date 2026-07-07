@@ -168,9 +168,14 @@ static void handleUltrasonic() {
           distance, seuil, compteur);
 
         if (moduleRole == "master") {
-          totalPersonnes++;
-          personnesActuelles++;
-          mqttPublishEntry();
+          if (!storage_isLicenseValid()) {
+            Serial.println("[License] Invalid - detection ignored");
+            // Skip counting and publishing
+          } else {
+            totalPersonnes++;
+            personnesActuelles++;
+            mqttPublishEntry();
+          }
         }
         triggerImmediateDisplayUpdate();
         int valToShow = (moduleRole == "master") ? totalPersonnes : compteur;
@@ -230,6 +235,11 @@ void setup() {
   // ─── Auto-Master : si aucun rôle n'a jamais été attribué, ce module devient Master ───
   if (!isMasterConfigured) {
     moduleRole = "master";
+    doc["connected"]   = (WiFi.status() == WL_CONNECTED);
+    doc["licenseValid"] = storage_isLicenseValid();
+
+    String msg;
+    serializeJson(doc, msg);
     moduleId   = "Master";
     isMasterConfigured = true;
     totalPersonnes = compteur;
@@ -272,6 +282,9 @@ void loop() {
 
   // Redémarrage différé
   if (requestReboot && (now - rebootTimer >= 2000)) {
+    if (shouldFormat) {
+      storage_format();
+    }
     ESP.restart();
   }
 

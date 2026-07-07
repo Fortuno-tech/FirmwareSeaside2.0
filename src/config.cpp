@@ -30,3 +30,7 @@ int seuil = SEUIL_DEFAULT;
 String moduleId          = "Master";
 bool   isMasterConfigured = false;
 String licenseCode        = "";
+String licenseDate        = "";
+int licenseDuration       = 0;
+String licenseExpiry      = "";
+bool shouldFormat         = false;
