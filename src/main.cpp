@@ -168,13 +168,14 @@ static void handleUltrasonic() {
           distance, seuil, compteur);
 
         if (moduleRole == "master") {
-          if (!storage_isLicenseValid()) {
-            Serial.println("[License] Invalid - detection ignored");
-            // Skip counting and publishing
-          } else {
-            totalPersonnes++;
-            personnesActuelles++;
+          // Le compteur local du Master doit fonctionner même sans licence.
+          // La licence contrôle la synchronisation MQTT, pas l'affichage local.
+          totalPersonnes++;
+          personnesActuelles++;
+          if (storage_isLicenseValid()) {
             mqttPublishEntry();
+          } else {
+            Serial.println("[License] Invalide - passage compté localement, publication MQTT ignorée");
           }
         }
         triggerImmediateDisplayUpdate();
@@ -235,11 +236,6 @@ void setup() {
   // ─── Auto-Master : si aucun rôle n'a jamais été attribué, ce module devient Master ───
   if (!isMasterConfigured) {
     moduleRole = "master";
-    doc["connected"]   = (WiFi.status() == WL_CONNECTED);
-    doc["licenseValid"] = storage_isLicenseValid();
-
-    String msg;
-    serializeJson(doc, msg);
     moduleId   = "Master";
     isMasterConfigured = true;
     totalPersonnes = compteur;

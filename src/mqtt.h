@@ -2,6 +2,9 @@
 #define MQTT_H
 
 #include <Arduino.h>
+#include <PubSubClient.h>
+
+extern PubSubClient mqttClient;
 
 void setupMQTT(const char* ssid, const char* password);
 void handleMQTT();

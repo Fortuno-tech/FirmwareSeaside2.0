@@ -159,13 +159,31 @@ function onClose(event) {
 function onMessage(event) {
   console.log("Message WebSocket reçu:", event.data);
   const el = document.getElementById("passageCount");
-  if (el) {
-    el.innerText = event.data;
+  if (!el) return;
+
+  const total = normalizeCount(event.data);
+
+  if (total !== null) {
+    el.innerText = total;
     // Animer la valeur
     el.classList.remove("count-flash");
     void el.offsetWidth;
     el.classList.add("count-flash");
   }
+}
+
+// Le firmware récent envoie {"total":0}, les anciennes versions envoyaient 0.
+// Toujours convertir en nombre avant de l'afficher pour éviter d'afficher l'objet JSON.
+function normalizeCount(value) {
+  let candidate = value;
+  if (typeof candidate === "string") {
+    try { candidate = JSON.parse(candidate); } catch (_) { /* valeur numérique brute */ }
+  }
+  if (candidate && typeof candidate === "object" && typeof candidate.total !== "undefined") {
+    candidate = candidate.total;
+  }
+  const number = Number(candidate);
+  return Number.isFinite(number) ? Math.max(0, Math.trunc(number)) : null;
 }
 
 // ================= MAC VALIDATION =================
@@ -754,6 +772,11 @@ function generateLicense(mac, expiryMark) {
   return `SMC-${macClean}-${expiryMark}-${randomPart(4)}`;
 }
 
+function getDeviceMac() {
+  const value = window.deviceMAC || document.getElementById("deviceMAC")?.innerText || "";
+  return /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(value) ? value : null;
+}
+
 function updateLicenseExpiry() {
   const dateInput = document.getElementById("licenseDate");
   const durationSelect = document.getElementById("licenseDuration");
@@ -782,13 +805,37 @@ function updateLicenseExpiry() {
   
   // Si le code est déjà affiché et commence par SMC, on le régénère avec la nouvelle expiration
   if (codeInput.value && codeInput.value.startsWith("SMC-")) {
-    let mac = window.deviceMAC || document.getElementById("deviceMAC")?.innerText || "00:00:00:00:00:00";
-    if (mac === "Inconnu" || mac === "—") mac = "00:00:00:00:00:00";
+    let mac = getDeviceMac();
+    const previousMac = codeInput.value.match(/^SMC-([0-9A-F]{12})-/i);
+    if (!mac && previousMac) {
+      mac = previousMac[1].match(/.{2}/g).join(":");
+    }
+    if (!mac) return;
     codeInput.value = generateLicense(mac, expiryMark);
   }
 }
 
-function generateNewLicense() {
+async function generateNewLicense() {
+  let mac = getDeviceMac();
+  if (!mac) {
+    try {
+      const response = await fetch("/api/status");
+      const status = await response.json();
+      if (response.ok && isValidMAC(status.mac)) {
+        mac = status.mac;
+        window.deviceMAC = mac;
+        const macElement = document.getElementById("deviceMAC");
+        if (macElement) macElement.innerText = mac;
+      }
+    } catch (_) {
+      // Le message ci-dessous explique clairement à l'utilisateur quoi faire.
+    }
+  }
+  if (!mac) {
+    showToast("Adresse MAC du module indisponible", "error");
+    return;
+  }
+
   const now = new Date();
   const dateInput = document.getElementById("licenseDate");
   dateInput.value = now.toLocaleString();
@@ -807,13 +854,11 @@ function generateNewLicense() {
     expiryMark = `${yyyy}${mm}${dd}`;
   }
   
-  let mac = window.deviceMAC || document.getElementById("deviceMAC")?.innerText || "00:00:00:00:00:00";
-  if (mac === "Inconnu" || mac === "—") mac = "00:00:00:00:00:00";
-  
   const code = generateLicense(mac, expiryMark);
   document.getElementById("licenseCode").value = code;
   
   updateLicenseExpiry();
+  sendLicense(true);
 }
 
 function copyLicense() {
@@ -842,7 +887,7 @@ function checkLicenseStatus(expiryIso) {
   }
 }
 
-function sendLicense() {
+function sendLicense(silent = false) {
   const licence = document.getElementById("licenseCode").value;
   if (!licence) { showToast("Générez une licence d'abord", "warning"); return; }
 
@@ -862,10 +907,14 @@ function sendLicense() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   })
-    .then(r => r.json())
+    .then(async r => {
+      const result = await r.json();
+      if (!r.ok) throw new Error(result.error || "Erreur serveur");
+      return result;
+    })
     .then(result => {
       if (result.status === "ok") {
-        showToast("Licence enregistrée sur le module", "success");
+        if (!silent) showToast("Licence enregistrée sur le module", "success");
         checkLicenseStatus(payload.expiry);
       } else {
         showToast(result.error || "Erreur de sauvegarde", "error");
@@ -969,11 +1018,13 @@ function updateDeviceStatus() {
     .then(res => res.json())
     .then(data => {
       if ((!websocket || websocket.readyState !== WebSocket.OPEN) && document.getElementById("passageCount")) {
-        document.getElementById("passageCount").innerText = data.total || 0;
+        const total = normalizeCount(data.total);
+        document.getElementById("passageCount").innerText = total === null ? 0 : total;
       }
 
       if (document.getElementById("deviceMAC"))
         document.getElementById("deviceMAC").innerText = data.mac || "Inconnu";
+      if (data.mac) window.deviceMAC = data.mac;
       if (document.getElementById("deviceRole"))
         document.getElementById("deviceRole").innerText = (data.moduleId ? `${data.moduleId} (${data.role || "neutral"})` : (data.role || "neutral")).toUpperCase();
       if (document.getElementById("deviceMode")) {
@@ -1066,7 +1117,8 @@ function updateModulesCount() {
       if (!grid) return;
 
       const modules = data.modules || [];
-      const total   = data.total || 0;
+      const normalizedTotal = normalizeCount(data.total);
+      const total   = normalizedTotal === null ? 0 : normalizedTotal;
 
       // Track module thresholds globally
       window.moduleThresholds = window.moduleThresholds || {};

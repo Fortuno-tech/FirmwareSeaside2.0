@@ -1,5 +1,6 @@
 #include "webserver.h"
 #include "config.h"
+#include "display.h"
 #include "wifi_ap.h"
 #include "storage.h"
 #include "mqtt.h"
@@ -54,12 +55,36 @@ void setupServer() {
   });
   server.addHandler(&ws);
 
+  // ─── GET /api/status ──────────────────────────────────────────────────────
+  server.on("/api/status", HTTP_GET, [](AsyncWebServerRequest* request) {
+    StaticJsonDocument<512> doc;
+    doc["total"]           = totalPersonnes;
+    doc["current"]         = personnesActuelles;
+    doc["compteur"]        = compteur;
+    doc["role"]            = moduleRole;
+    doc["moduleId"]        = moduleId;
+    doc["mac"]             = WiFi.macAddress();
+    doc["connected"]       = (WiFi.status() == WL_CONNECTED);
+    doc["licence"]         = licenseCode;
+    doc["licenseDate"]     = licenseDate;
+    doc["licenseDuration"] = licenseDuration;
+    doc["licenseExpiry"]   = licenseExpiry;
+    doc["licenseValid"]    = storage_isLicenseValid();
+    String response;
+    serializeJson(doc, response);
+    request->send(200, "application/json", response);
+  });
+
 // ─── POST /api/license/generate ──────────────────────────────────────────────
-  server.on("/api/license/generate", HTTP_POST, [] (AsyncWebServerRequest* request) {}, NULL,
+  server.on("/api/license/generate", HTTP_POST, [] (AsyncWebServerRequest* request) {}, nullptr,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       StaticJsonDocument<256> doc;
       deserializeJson(doc, data, len);
       int duration = doc["durationDays"] | 30; // default 30 days
+      if (duration < 0 || duration > 3650) {
+        request->send(400, "application/json", "{\"error\":\"Duree invalide\"}");
+        return;
+      }
       if (storage_generateLicense(duration)) {
         StaticJsonDocument<256> resp;
         resp["licenseCode"] = licenseCode;
@@ -74,63 +99,17 @@ void setupServer() {
       }
     });
 
-  // ─── POST /api/module/reset ─────────────────────────────────────────────────────
-  server.on("/api/module/reset", HTTP_POST, [] (AsyncWebServerRequest* request) {}, NULL,
-    [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
-      StaticJsonDocument<256> doc;
-      deserializeJson(doc, data, len);
-      String targetId = doc["moduleId"].as<String>();
-      if (targetId == moduleId) {
-        // Reset master counters
-        compteur = 0;
-        totalPersonnes = 0;
-        personnesActuelles = 0;
-        storage_saveConfig();
-        request->send(200, "application/json", "{\"status\":\"master_reset\"}");
-      } else {
-        // For slaves, send a reset command via MQTT (topic "seaside/command/reset/<moduleId>")
-        String topic = "seaside/command/reset/" + targetId;
-        if (mqttClient.connected()) {
-          mqttClient.publish(topic.c_str(), "reset");
-          request->send(200, "application/json", "{\"status\":\"reset_sent\"}");
-        } else {
-          request->send(503, "application/json", "{\"error\":\"mqtt_not_connected\"}");
-        }
-      }
-    });
-
   // ─── POST /api/format ────────────────────────────────────────────────────────
-  server.on("/api/format", HTTP_POST, [] (AsyncWebServerRequest* request) {}, NULL,
+  server.on("/api/format", HTTP_POST, [] (AsyncWebServerRequest* request) {}, nullptr,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       storage_format();
       request->send(200, "application/json", "{\"status\":\"formatted\"}");
     });
 
-  // Insert license validation check before publishing telemetry
-  // (modify existing mqttPublishEntry below)
-
-    StaticJsonDocument<512> doc;
-    doc["total"]           = totalPersonnes;
-    doc["current"]         = personnesActuelles;
-    doc["role"]            = moduleRole;
-    doc["moduleId"]        = moduleId;
-    doc["ip"]              = (moduleRole == "slave") ? WiFi.localIP().toString() : WiFi.softAPIP().toString();
-    doc["mac"]             = WiFi.macAddress();
-    doc["connected"]       = (WiFi.status() == WL_CONNECTED);
-    doc["battery"]         = 100;
-    doc["licence"]         = licenseCode;
-    doc["licenseDate"]     = licenseDate;
-    doc["licenseDuration"] = licenseDuration;
-    doc["licenseExpiry"]   = licenseExpiry;
-    String response;
-    serializeJson(doc, response);
-    request->send(200, "application/json", response);
-  });
-
   // ─── POST /api/register_slave ──────────────────────────────────────────────
   server.on("/api/register_slave", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
-    NULL,
+    nullptr,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       StaticJsonDocument<256> doc;
       deserializeJson(doc, data, len);
@@ -304,7 +283,7 @@ void setupServer() {
   // ─── POST /api/slaves/add ──────────────────────────────────────────────────
   server.on("/api/slaves/add", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
-    NULL,
+    nullptr,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       StaticJsonDocument<256> doc;
       deserializeJson(doc, data, len);
@@ -358,7 +337,7 @@ void setupServer() {
   // ─── POST /api/slaves/delete ───────────────────────────────────────────────
   server.on("/api/slaves/delete", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
-    NULL,
+    nullptr,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       StaticJsonDocument<128> doc;
       deserializeJson(doc, data, len);
@@ -406,7 +385,7 @@ void setupServer() {
   // ─── POST /api/count ──────────────────────────────────────────────────────
   server.on("/api/count", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
-    NULL,
+    nullptr,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       StaticJsonDocument<200> doc;
       deserializeJson(doc, data, len);
@@ -440,10 +419,13 @@ void setupServer() {
   // ─── POST /api/config/module ──────────────────────────────────────────────
   server.on("/api/config/module", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
-    NULL,
+    nullptr,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       StaticJsonDocument<512> doc;
-      deserializeJson(doc, data, len);
+      if (deserializeJson(doc, data, len)) {
+        request->send(400, "application/json", "{\"error\":\"JSON invalide\"}");
+        return;
+      }
       // macSlave correspond au champ "MAC autre module" (mac2) envoyé par le formulaire
       if (doc.containsKey("macSlave"))   masterMAC = doc["macSlave"].as<String>();
       else if (doc.containsKey("masterMAC")) masterMAC = doc["masterMAC"].as<String>();
@@ -495,7 +477,7 @@ void setupServer() {
   // ─── POST /api/config/ap ──────────────────────────────────────────────────
   server.on("/api/config/ap", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
-    NULL,
+    nullptr,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       StaticJsonDocument<256> doc;
       deserializeJson(doc, data, len);
@@ -525,7 +507,7 @@ void setupServer() {
   // ─── POST /api/wifi ───────────────────────────────────────────────────────
   server.on("/api/wifi", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
-    NULL,
+    nullptr,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       StaticJsonDocument<200> doc;
       deserializeJson(doc, data, len);
@@ -559,7 +541,7 @@ void setupServer() {
   // ─── POST /api/mqtt ───────────────────────────────────────────────────────
   server.on("/api/mqtt", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
-    NULL,
+    nullptr,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       StaticJsonDocument<300> doc;
       deserializeJson(doc, data, len);
@@ -596,7 +578,7 @@ void setupServer() {
   // ─── POST /api/config/sensor ──────────────────────────────────────────────
   server.on("/api/config/sensor", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
-    NULL,
+    nullptr,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       StaticJsonDocument<256> doc;
       deserializeJson(doc, data, len);
@@ -641,6 +623,7 @@ void setupServer() {
   // ─── OTA Upload ───────────────────────────────────────────────────────────
   server.on("/update", HTTP_POST,
     [](AsyncWebServerRequest* request) {
+      // The request callback runs after upload finishes; determine success via Update.hasError()
       bool success = !Update.hasError();
       request->send(200, "text/plain", success ? "OK" : "FAILED");
       if (success) {
@@ -651,12 +634,23 @@ void setupServer() {
     [](AsyncWebServerRequest* request, String filename, size_t index, uint8_t* data, size_t len, bool final) {
       if (index == 0) {
         Serial.printf("OTA Start: %s\n", filename.c_str());
+        // Allocate space for new sketch, aligning to 4KB boundary
         Update.begin((ESP.getFreeSketchSpace() - 0x1000) & 0xFFFFF000);
       }
-      Update.write(data, len);
+      // Write the received chunk; if it fails, abort the update
+      if (!Update.write(data, len)) {
+        Serial.printf("OTA write error: %s\n", Update.errorString());
+        Update.abort();
+        return;
+      }
       if (final) {
-        Update.end(true);
-        Serial.println("OTA terminé !");
+        // End the update and check for success
+        bool success = Update.end();
+        if (success) {
+          Serial.println("OTA terminé !");
+        } else {
+          Serial.printf("OTA error: %s\n", Update.errorString());
+        }
       }
     }
   );
@@ -704,10 +698,13 @@ void setupServer() {
   // ─── POST /api/config/license ──────────────────────────────────────────────
   server.on("/api/config/license", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
-    NULL,
+    nullptr,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       StaticJsonDocument<512> doc;
-      deserializeJson(doc, data, len);
+      if (deserializeJson(doc, data, len)) {
+        request->send(400, "application/json", "{\"error\":\"JSON invalide\"}");
+        return;
+      }
       
       if (doc.containsKey("licence")) licenseCode = doc["licence"].as<String>();
       else if (doc.containsKey("licenseCode")) licenseCode = doc["licenseCode"].as<String>();
@@ -715,6 +712,12 @@ void setupServer() {
       if (doc.containsKey("date")) licenseDate = doc["date"].as<String>();
       if (doc.containsKey("duration")) licenseDuration = doc["duration"].as<int>();
       if (doc.containsKey("expiry")) licenseExpiry = doc["expiry"].as<String>();
+
+      if (licenseCode.length() == 0 || licenseDuration < 0 || licenseDuration > 3650 ||
+          (licenseDuration > 0 && licenseExpiry.length() == 0)) {
+        request->send(400, "application/json", "{\"error\":\"Données de licence invalides\"}");
+        return;
+      }
       
       storage_saveConfig();
       request->send(200, "application/json", "{\"status\":\"ok\"}");
@@ -724,7 +727,7 @@ void setupServer() {
   // ─── POST /api/module/reset ───────────────────────────────────────────────
   server.on("/api/module/reset", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
-    NULL,
+    nullptr,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       StaticJsonDocument<256> doc;
       deserializeJson(doc, data, len);
@@ -781,7 +784,7 @@ void setupServer() {
   // ─── POST /api/module/format ──────────────────────────────────────────────
   server.on("/api/module/format", HTTP_POST,
     [](AsyncWebServerRequest* request) {},
-    NULL,
+    nullptr,
     [](AsyncWebServerRequest* request, uint8_t* data, size_t len, size_t index, size_t total) {
       StaticJsonDocument<256> doc;
       deserializeJson(doc, data, len);
