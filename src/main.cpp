@@ -11,6 +11,7 @@
 #include "espnow.h"
 #include "mqtt.h"
 #include "ota.h"
+#include "battery.h"
 
 //Etat app
 int                  compteur        = 0;
@@ -85,6 +86,10 @@ static void onButtonReset() {
 static void onWake() {
   triggerImmediateDisplayUpdate();
 }
+
+void mqttCommandIncrementer() { onButtonPlus(); }
+void mqttCommandDecrementer() { onButtonMinus(); }
+void mqttCommandResetCompteur() { onButtonReset(); }
 
 // ─────────────────────────────────────────────────────────────────────────────────
 // Détection ultrason
@@ -221,6 +226,7 @@ void setup() {
   display_init();
   ultrasonic_init();
   buzzerLed_init();
+  battery_init();
   buttons_init();
   buttons_setCallbacks(onButtonPlus, onButtonMinus, onButtonReset, onWake);
 

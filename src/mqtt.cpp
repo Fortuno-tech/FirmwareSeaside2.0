@@ -5,6 +5,8 @@
 #include <PubSubClient.h>
 #include <ArduinoJson.h>
 #include "storage.h"
+#include "webserver.h"
+#include "battery.h"
 
 // Config MQTT local fallbacks
 const char* MQTT_SERVER = "53cc1d1dc297463f9f511baf26ee908e.s1.eu.hivemq.cloud";
@@ -37,9 +39,40 @@ void onMQTTMessage(char* topic, byte* payload, unsigned int length) {
   myMacNoColons.replace(":", "");
 
   if (topicStr.endsWith(myMac) || topicStr.endsWith(myMacNoColons)) {
-    StaticJsonDocument<256> doc;
+    StaticJsonDocument<512> doc;
     DeserializationError error = deserializeJson(doc, msg);
     if (!error) {
+      String commande = doc["commande"] | "";
+      if (commande.length() == 0) commande = doc["command"] | "";
+      commande.toLowerCase();
+
+      if (commande == "incrementer" || commande == "increment") {
+        mqttCommandIncrementer();
+        Serial.println("[MQTT] Commande incrementer exécutée");
+      } else if (commande == "decrementer" || commande == "decrement") {
+        mqttCommandDecrementer();
+        Serial.println("[MQTT] Commande decrementer exécutée");
+      } else if (commande == "reset" || commande == "reset module" || commande == "reset_module") {
+        requestReboot = true;
+        shouldFormat = false;
+        rebootTimer = millis();
+        Serial.println("[MQTT] Commande reset module reçue");
+      } else if (commande == "formatage rapide memoire" ||
+                 commande == "formatage_rapide_memoire" ||
+                 commande == "format" || commande == "formatage") {
+        requestReboot = true;
+        shouldFormat = true;
+        rebootTimer = millis();
+        Serial.println("[MQTT] Commande formatage rapide mémoire reçue");
+      } else if (commande == "rapport visuel" ||
+                 commande == "rapport_visuel" || commande == "report") {
+        mqttPublishVisualReport();
+        Serial.println("[MQTT] Rapport visuel envoyé");
+      } else if (commande.length() > 0) {
+        Serial.print("[MQTT] Commande inconnue : ");
+        Serial.println(commande);
+      }
+
       if (doc.containsKey("seuil")) {
         int val = doc["seuil"].as<int>();
         if (val >= SEUIL_MIN && val <= SEUIL_MAX) {
@@ -185,7 +218,7 @@ void mqttPublishEntry() {
     doc["role"]        = moduleRole;
     doc["count"]       = compteur;        // compteur local master à cet instant
     doc["total"]       = totalPersonnes;  // total tous modules
-    doc["battery"]     = 100;             // placeholder
+    doc["battery"]     = battery_getPercent();
     doc["licence"]     = licenseCode;
     doc["timestamp"]   = millis();
     doc["connected"]   = (WiFi.status() == WL_CONNECTED);
@@ -226,5 +259,14 @@ void mqttPublishAlert(const String& message) {
     serializeJson(doc, msg);
     mqttClient.publish(TOPIC_ALERTE, msg.c_str());
     Serial.printf("MQTT alerte publiée : %s\n", msg.c_str());
+  }
+}
+
+void mqttPublishVisualReport() {
+  if (mqttClient.connected()) {
+    String msg = webserver_getMqttPayloadJson();
+    mqttClient.publish("seaside/rapport/visuel", msg.c_str());
+    Serial.print("MQTT rapport visuel publié (seaside/rapport/visuel) : ");
+    Serial.println(msg);
   }
 }

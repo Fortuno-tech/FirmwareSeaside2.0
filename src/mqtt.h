@@ -12,5 +12,9 @@ void mqttPublishCount(int total, int current);
 void mqttPublishEntry();
 void mqttPublishSlaveTelemetry(const char* slaveId, const char* mac, int count, int seuil, bool active);
 void mqttPublishAlert(const String& message);
+void mqttPublishVisualReport();
+void mqttCommandIncrementer();
+void mqttCommandDecrementer();
+void mqttCommandResetCompteur();
 
 #endif

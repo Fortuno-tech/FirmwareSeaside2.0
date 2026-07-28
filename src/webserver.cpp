@@ -4,6 +4,7 @@
 #include "wifi_ap.h"
 #include "storage.h"
 #include "mqtt.h"
+#include "battery.h"
 #include "espnow.h"
 #include <WiFi.h>
 #include <AsyncTCP.h>
@@ -217,7 +218,7 @@ void setupServer() {
     masterObj["count"]    = compteur;   // compteur local du master
     masterObj["seuil"]    = seuil;
     masterObj["active"]   = true;
-    masterObj["battery"]  = 100;        // placeholder (ADC non câblé)
+    masterObj["battery"]  = battery_getPercent();
     masterObj["licence"]  = licenseCode;
     
     unsigned long now = millis();
@@ -841,7 +842,7 @@ String webserver_getMqttPayloadJson() {
 
   // Métadonnées globales
   doc["timestamp"]    = now;
-  doc["battery"]      = 100;          // placeholder ADC
+  doc["battery"]      = battery_getPercent();
   doc["licence"]      = licenseCode;
   doc["total"]        = totalPersonnes;
   doc["current"]      = personnesActuelles;
@@ -855,7 +856,7 @@ String webserver_getMqttPayloadJson() {
   masterObj["mac"]       = WiFi.macAddress();
   masterObj["count"]     = compteur;
   masterObj["seuil"]     = seuil;
-  masterObj["battery"]   = 100;
+  masterObj["battery"]   = battery_getPercent();
   masterObj["active"]    = true;
   masterObj["licence"]   = licenseCode;
 
@@ -869,7 +870,7 @@ String webserver_getMqttPayloadJson() {
   masterMod["mac"]      = WiFi.macAddress();
   masterMod["count"]    = compteur;
   masterMod["seuil"]    = seuil;
-  masterMod["battery"]  = 100;
+  masterMod["battery"]  = battery_getPercent();
   masterMod["active"]   = true;
 
   int numModules = 1;
