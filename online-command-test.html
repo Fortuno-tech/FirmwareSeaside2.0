@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="fr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Seaside — Test des commandes</title>
+  <script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+  <style>
+    :root { color-scheme: dark; font-family: system-ui, sans-serif; }
+    body { max-width: 760px; margin: 2rem auto; padding: 0 1rem; background:#101827; color:#e8eef8; }
+    .card { background:#182235; border:1px solid #30415f; border-radius:14px; padding:1.2rem; margin:1rem 0; }
+    h1 { margin-bottom:.3rem; } p { color:#aebbd0; }
+    label { display:block; margin:.8rem 0 .3rem; color:#cbd7e8; }
+    input { width:100%; box-sizing:border-box; padding:.7rem; border-radius:8px; border:1px solid #405474; background:#0e1624; color:inherit; }
+    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:.7rem; margin-top:1rem; }
+    button { border:0; border-radius:8px; padding:.75rem; cursor:pointer; background:#2775e8; color:white; font-weight:600; }
+    button.danger { background:#c43c52; } button.secondary { background:#52627b; }
+    #status { padding:.65rem; border-radius:8px; background:#3d2d13; color:#ffd486; }
+    #status.ok { background:#143d2a; color:#91efb8; } #status.bad { background:#4b1d2a; color:#ff9dae; }
+    pre { white-space:pre-wrap; max-height:220px; overflow:auto; background:#0b111c; padding:.8rem; border-radius:8px; color:#b9c8df; }
+    small { color:#91a0b8; }
+  </style>
+</head>
+<body>
+  <h1>Test des commandes Seaside</h1>
+  <p>Cette page publie directement une commande MQTT vers le module Master.</p>
+
+  <section class="card">
+    <h2>Connexion MQTT</h2>
+    <label for="broker">Broker WebSocket sécurisé (WSS)</label>
+    <input id="broker" value="wss://VOTRE-BROKER:8884/mqtt" placeholder="wss://...:8884/mqtt">
+    <label for="user">Utilisateur MQTT</label>
+    <input id="user" autocomplete="username">
+    <label for="password">Mot de passe MQTT</label>
+    <input id="password" type="password" autocomplete="current-password">
+    <button id="connect" onclick="connectMqtt()" style="margin-top:1rem">Se connecter</button>
+    <button class="secondary" onclick="disconnectMqtt()">Se déconnecter</button>
+    <p id="status">Déconnecté</p>
+  </section>
+
+  <section class="card">
+    <h2>Module cible</h2>
+    <label for="mac">Adresse MAC du Master</label>
+    <input id="mac" placeholder="AA:BB:CC:DD:EE:FF">
+    <small>Le firmware accepte aussi l'adresse MAC sans « : ».</small>
+    <div class="grid">
+      <button onclick="sendCommand('incrementer')">+1 Incrémenter</button>
+      <button onclick="sendCommand('decrementer')">−1 Décrémenter</button>
+      <button class="danger" onclick="sendCommand('reset')">Réinitialiser</button>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2>Seuil du capteur</h2>
+    <input id="threshold" type="number" min="10" max="100" value="80">
+    <button onclick="sendThreshold()" style="margin-top:.7rem">Envoyer le seuil</button>
+  </section>
+
+  <section class="card">
+    <h2>Journal</h2>
+    <pre id="log">Prêt.</pre>
+  </section>
+
+  <script>
+    let client = null;
+    const $ = id => document.getElementById(id);
+    function log(message) {
+      const line = `[${new Date().toLocaleTimeString()}] ${message}`;
+      $('log').textContent = line + '\n' + $('log').textContent;
+    }
+    function setStatus(message, type='') {
+      $('status').textContent = message;
+      $('status').className = type;
+    }
+    function topic() {
+      const mac = $('mac').value.trim().toUpperCase();
+      if (!mac) throw new Error('Renseigne l’adresse MAC du Master.');
+      return 'seaside/config/' + mac;
+    }
+    function connectMqtt() {
+      if (client) client.end(true);
+      const broker = $('broker').value.trim();
+      if (!broker.startsWith('wss://')) {
+        setStatus('Utilise une adresse wss:// pour une page en ligne.', 'bad');
+        return;
+      }
+      setStatus('Connexion…');
+      client = mqtt.connect(broker, {
+        username: $('user').value,
+        password: $('password').value,
+        clientId: 'seaside-web-' + Math.random().toString(16).slice(2),
+        reconnectPeriod: 3000
+      });
+      client.on('connect', () => { setStatus('Connecté au broker MQTT', 'ok'); log('Connexion MQTT réussie.'); });
+      client.on('reconnect', () => setStatus('Reconnexion…'));
+      client.on('error', error => { setStatus('Erreur MQTT', 'bad'); log('Erreur : ' + error.message); });
+      client.on('close', () => setStatus('Déconnecté'));
+    }
+    function disconnectMqtt() {
+      if (client) client.end();
+      client = null;
+      setStatus('Déconnecté');
+    }
+    function publish(payload) {
+      if (!client || !client.connected) { setStatus('Connecte d’abord la page au broker.', 'bad'); return; }
+      try {
+        const destination = topic();
+        client.publish(destination, JSON.stringify(payload), { qos: 1 }, error => {
+          if (error) { log('Échec d’envoi : ' + error.message); return; }
+          log(`Envoyé sur ${destination} : ${JSON.stringify(payload)}`);
+        });
+      } catch (error) { setStatus(error.message, 'bad'); }
+    }
+    function sendCommand(command) { publish({ commande: command }); }
+    function sendThreshold() {
+      const value = Number($('threshold').value);
+      if (!Number.isInteger(value) || value < 10 || value > 100) {
+        setStatus('Le seuil doit être compris entre 10 et 100 cm.', 'bad'); return;
+      }
+      publish({ seuil: value });
+    }
+  </script>
+</body>
+</html>
