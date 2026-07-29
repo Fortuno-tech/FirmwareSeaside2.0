@@ -2,7 +2,7 @@ name: Deploy command test page
 
 on:
   push:
-    branches: [ main, master ]
+    branches: [ main, master, manoa ]
   workflow_dispatch:
 
 permissions:
