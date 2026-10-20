@@ -35,10 +35,11 @@ static SlaveDevice s_slaves[MAX_SLAVES] = {};
 static int s_slaveCount = 0;
 
 // Callback envoi
-void onDataSent(const uint8_t* mac, esp_now_send_status_t status) {
+void onDataSent(const esp_now_send_info_t* tx_info, esp_now_send_status_t status) {
+  const uint8_t* mac = (tx_info != nullptr) ? tx_info->des_addr : nullptr;
   Serial.print("[ESP-NOW] Envoi au MAC ");
   for (int i = 0; i < 6; i++) {
-    Serial.printf("%02X", mac[i]);
+    Serial.printf("%02X", (mac != nullptr) ? mac[i] : 0);
     if (i < 5) Serial.print(":");
   }
   Serial.println(status == ESP_NOW_SEND_SUCCESS ? " : Réussi" : " : Échoué");
@@ -69,7 +70,10 @@ void espnow_resetSlaves() {
 }
 
 // Callback réception
-void onDataReceived(const uint8_t* mac, const uint8_t* data, int len) {
+void onDataReceived(const esp_now_recv_info_t* recv_info, const uint8_t* data, int len) {
+  if (recv_info == nullptr || recv_info->src_addr == nullptr) return;
+  const uint8_t* mac = recv_info->src_addr;
+
   if (len < (int)sizeof(uint8_t)) return;
   
   memcpy(&s_packetReceived, data, sizeof(s_packetReceived));

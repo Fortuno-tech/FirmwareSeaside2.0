@@ -13,6 +13,7 @@ static unsigned long s_lastChanged = 0;
 
 // ─────────────────────────────────────────────────────────────────────────────
 
+
 bool storage_init() {
   if (!LittleFS.begin(true)) {
     Serial.println("✗ Erreur: montage LittleFS échoué");

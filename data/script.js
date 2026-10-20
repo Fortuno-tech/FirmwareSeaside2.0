@@ -1,49 +1,397 @@
-let titleAnimationInterval = null;
-let titleAnimationTimeout = null;
+// =====================================================
+// SmartCount - script.js
+// =====================================================
 
-function animatePageTitle(text) {
-  const title = document.getElementById("pageTitle");
-  clearInterval(titleAnimationInterval);
-  clearTimeout(titleAnimationTimeout);
+const $ = (id) => document.getElementById(id);
+const esc = (s) =>
+  String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+const cap = (s) => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
-  function play() {
-    let index = 0;
-    title.textContent = "";
-    titleAnimationInterval = setInterval(() => {
-      title.textContent += text.charAt(index);
-      index++;
-      if (index >= text.length) {
-        clearInterval(titleAnimationInterval);
-        titleAnimationTimeout = setTimeout(play, 1800);
-      }
-    }, 120);
+// Désactive un bouton et affiche un indicateur pendant une requête
+function track(btn, promise) {
+  if (!btn) return promise;
+  btn.disabled = true;
+  btn.classList.add("loading");
+  return promise.finally(() => {
+    btn.disabled = false;
+    btn.classList.remove("loading");
+  });
+}
+
+// =====================================================
+// DROPDOWN PERSONNALISÉ (remplace tous les <select>)
+//
+// Markup :
+//   <div class="dd" id="monChamp" data-value="b" data-placeholder="Choisir"
+//        data-onchange="maFonction" data-searchable="auto|true|false">
+//     <span data-value="a">Option A</span>
+//     <span data-value="b" data-hint="info" data-disabled>Option B</span>
+//   </div>
+//
+// API :  ddValue(id)  ddSet(id, valeur)  Dropdown.get(id).setOptions([{value,label,hint,disabled}])
+//        Dropdown.init(racine)  à appeler après avoir injecté du HTML dynamique
+// =====================================================
+const isSheet = () => window.matchMedia("(max-width: 600px)").matches;
+
+class Dropdown {
+  constructor(el) {
+    this.el = el;
+    el._dd = this;
+    this.uid = el.id || "dd" + ++Dropdown.count;
+    this.placeholder = el.dataset.placeholder || "";
+    this.options = Array.from(el.children)
+      .filter((n) => n.dataset.value !== undefined)
+      .map((n) => ({
+        value: n.dataset.value,
+        label: n.textContent.trim(),
+        hint: n.dataset.hint || "",
+        disabled: n.hasAttribute("data-disabled"),
+      }));
+    this.value =
+      el.dataset.value !== undefined ? el.dataset.value : this.placeholder ? "" : this.options[0] ? this.options[0].value : "";
+    this.isOpen = false;
+    this.active = -1;
+    this.query = "";
+    this.visible = [];
+    this.sig = "";
+    this.build();
+    this.updateLabel();
   }
-  play();
-}
 
-// ================= SIDEBAR =================
-function toggleSidebar() {
-  document.getElementById("sidebar").classList.toggle("active");
-}
+  build() {
+    const el = this.el;
+    el.classList.add("dd");
+    el.innerHTML = `
+      <button type="button" class="dd-trigger" aria-haspopup="listbox" aria-expanded="false" aria-controls="${this.uid}-list">
+        <span class="dd-label" id="${this.uid}-value"></span>
+        <i class="bi bi-chevron-down dd-caret" aria-hidden="true"></i>
+      </button>
+      <div class="dd-menu">
+        <div class="dd-search" hidden>
+          <i class="bi bi-search" aria-hidden="true"></i>
+          <input type="text" placeholder="Rechercher" autocomplete="off" aria-label="Rechercher" />
+        </div>
+        <ul class="dd-list" role="listbox" id="${this.uid}-list" tabindex="-1"></ul>
+      </div>`;
+    this.trigger = el.querySelector(".dd-trigger");
+    this.label = el.querySelector(".dd-label");
+    this.menu = el.querySelector(".dd-menu");
+    this.searchBox = el.querySelector(".dd-search");
+    this.input = el.querySelector(".dd-search input");
+    this.list = el.querySelector(".dd-list");
 
-document.addEventListener("click", function (e) {
-  let sidebar = document.getElementById("sidebar");
-  let burger = document.querySelector(".burger");
-  if (window.innerWidth <= 768) {
-    if (!sidebar.contains(e.target) && !burger.contains(e.target)) {
-      sidebar.classList.remove("active");
+    const lab = el.closest(".input-group") && el.closest(".input-group").querySelector("label");
+    if (lab) {
+      lab.id = lab.id || this.uid + "-label";
+      this.trigger.setAttribute("aria-labelledby", lab.id + " " + this.uid + "-value");
+    }
+
+    this.trigger.addEventListener("click", () => this.toggle());
+    this.list.addEventListener("click", (e) => {
+      const li = e.target.closest(".dd-option");
+      if (li) this.choose(+li.dataset.index);
+    });
+    this.list.addEventListener("mousemove", (e) => {
+      const li = e.target.closest(".dd-option:not(.disabled)");
+      if (li && +li.dataset.index !== this.active) this.setActive(+li.dataset.index, false);
+    });
+    this.input.addEventListener("input", () => {
+      this.query = this.input.value.trim().toLowerCase();
+      this.active = -1;
+      this.renderList();
+    });
+    el.addEventListener("keydown", (e) => this.onKey(e));
+    el.addEventListener("keyup", (e) => {
+      if (e.key === " " && e.target === this.trigger) e.preventDefault(); // évite un clic parasite
+    });
+  }
+
+  // ---------- état ----------
+  updateLabel() {
+    const o = this.options.find((x) => x.value === this.value);
+    this.label.textContent = o ? o.label : this.placeholder;
+    this.label.classList.toggle("placeholder", !o);
+    this.trigger.title = o ? o.label : "";
+  }
+
+  setValue(v) {
+    v = String(v);
+    if (!this.options.some((o) => o.value === v)) return false;
+    this.value = v;
+    this.updateLabel();
+    if (this.isOpen) this.renderList();
+    return true;
+  }
+
+  setOptions(opts) {
+    const sig = JSON.stringify(opts);
+    if (sig === this.sig) return;
+    this.sig = sig;
+    this.options = opts.map((o) => ({ hint: "", disabled: false, ...o, value: String(o.value) }));
+    if (!this.options.some((o) => o.value === this.value)) {
+      this.value = this.placeholder ? "" : this.options[0] ? this.options[0].value : "";
+    }
+    this.updateLabel();
+    if (this.isOpen) this.renderList();
+  }
+
+  // ---------- rendu ----------
+  renderList() {
+    const q = this.query;
+    this.visible = [];
+    this.options.forEach((o, i) => {
+      if (!q || (o.label + " " + o.hint).toLowerCase().includes(q)) this.visible.push(i);
+    });
+
+    if (!this.visible.length) {
+      this.list.innerHTML = `<li class="dd-empty" role="presentation">${
+        this.options.length ? "Aucun résultat" : "Aucune option disponible"
+      }</li>`;
+      this.active = -1;
+      this.markActive(false);
+      return;
+    }
+
+    this.list.innerHTML = this.visible
+      .map((i) => {
+        const o = this.options[i];
+        const sel = o.value === this.value;
+        return `<li class="dd-option${sel ? " selected" : ""}${o.disabled ? " disabled" : ""}" role="option" id="${this.uid}-o${i}" data-index="${i}" aria-selected="${sel}"${o.disabled ? ' aria-disabled="true"' : ""}>
+          <span class="dd-text">${esc(o.label)}${o.hint ? `<small class="dd-hint">${esc(o.hint)}</small>` : ""}</span>
+          <i class="bi bi-check2 dd-check" aria-hidden="true"></i>
+        </li>`;
+      })
+      .join("");
+
+    if (!this.visible.includes(this.active) || this.options[this.active].disabled) {
+      const sel = this.visible.find((i) => this.options[i].value === this.value && !this.options[i].disabled);
+      const first = this.visible.find((i) => !this.options[i].disabled);
+      this.active = sel !== undefined ? sel : first !== undefined ? first : -1;
+    }
+    this.markActive(false);
+  }
+
+  markActive(scroll) {
+    let current = null;
+    this.list.querySelectorAll(".dd-option").forEach((li) => {
+      const on = +li.dataset.index === this.active;
+      li.classList.toggle("active", on);
+      if (on) current = li;
+    });
+    [this.trigger, this.input].forEach((n) => {
+      if (current) n.setAttribute("aria-activedescendant", current.id);
+      else n.removeAttribute("aria-activedescendant");
+    });
+    if (current && scroll) current.scrollIntoView({ block: "nearest" });
+  }
+
+  setActive(i, scroll = true) {
+    this.active = i;
+    this.markActive(scroll);
+  }
+
+  move(dir) {
+    const enabled = this.visible.filter((i) => !this.options[i].disabled);
+    if (!enabled.length) return;
+    let pos = enabled.indexOf(this.active);
+    pos = pos === -1 ? (dir > 0 ? 0 : enabled.length - 1) : (pos + dir + enabled.length) % enabled.length;
+    this.setActive(enabled[pos]);
+  }
+
+  // ---------- ouverture / fermeture ----------
+  show() {
+    if (this.isOpen) return;
+    Dropdown.hideAll();
+    this.isOpen = true;
+    this.query = "";
+    this.input.value = "";
+
+    const mode = this.el.dataset.searchable;
+    const useSearch = mode === "true" || (mode !== "false" && this.options.length >= 8);
+    this.searchBox.hidden = !useSearch;
+
+    this.active = this.options.findIndex((o) => o.value === this.value && !o.disabled);
+    this.renderList();
+    this.el.classList.add("open");
+    this.trigger.setAttribute("aria-expanded", "true");
+    this.place();
+    if (isSheet()) Dropdown.setBackdrop(true);
+    this.markActive(true);
+    if (useSearch && !isSheet()) this.input.focus({ preventScroll: true });
+  }
+
+  hide(refocus) {
+    if (!this.isOpen) return;
+    this.isOpen = false;
+    this.el.classList.remove("open");
+    this.trigger.setAttribute("aria-expanded", "false");
+    Dropdown.setBackdrop(false);
+    if (refocus) this.trigger.focus({ preventScroll: true });
+  }
+
+  toggle() {
+    this.isOpen ? this.hide() : this.show();
+  }
+
+  // Le menu est en position fixed : il n'est jamais coupé par un conteneur
+  place() {
+    const s = this.menu.style;
+    if (isSheet()) {
+      s.cssText = "";
+      return;
+    }
+    const r = this.trigger.getBoundingClientRect();
+    const vh = window.innerHeight;
+    const below = vh - r.bottom - 12;
+    const above = r.top - 12;
+    const up = below < 180 && above > below;
+    s.left = r.left + "px";
+    s.width = r.width + "px";
+    s.maxHeight = Math.max(120, Math.min(300, up ? above : below)) + "px";
+    if (up) {
+      s.top = "auto";
+      s.bottom = vh - r.top + 4 + "px";
+    } else {
+      s.bottom = "auto";
+      s.top = r.bottom + 4 + "px";
     }
   }
-});
 
-// ================= TOASTIFY =================
+  choose(i) {
+    const o = this.options[i];
+    if (!o || o.disabled) return;
+    const changed = o.value !== this.value;
+    this.value = o.value;
+    this.updateLabel();
+    this.hide(true);
+    if (changed) this.emit();
+  }
+
+  emit() {
+    this.el.dispatchEvent(new CustomEvent("change", { bubbles: true, detail: { value: this.value } }));
+    const fn = this.el.dataset.onchange;
+    if (fn && typeof window[fn] === "function") window[fn](this.value, this);
+  }
+
+  // ---------- clavier ----------
+  onKey(e) {
+    const k = e.key;
+    if (!this.isOpen) {
+      if (e.target === this.trigger && (k === "ArrowDown" || k === "ArrowUp" || k === "Enter" || k === " ")) {
+        e.preventDefault();
+        this.show();
+      }
+      return;
+    }
+    const inSearch = e.target === this.input;
+    const enabled = this.visible.filter((i) => !this.options[i].disabled);
+    switch (k) {
+      case "ArrowDown":
+        e.preventDefault();
+        this.move(1);
+        break;
+      case "ArrowUp":
+        e.preventDefault();
+        this.move(-1);
+        break;
+      case "Home":
+        if (!inSearch && enabled.length) {
+          e.preventDefault();
+          this.setActive(enabled[0]);
+        }
+        break;
+      case "End":
+        if (!inSearch && enabled.length) {
+          e.preventDefault();
+          this.setActive(enabled[enabled.length - 1]);
+        }
+        break;
+      case "Enter":
+        e.preventDefault();
+        if (this.active >= 0) this.choose(this.active);
+        break;
+      case " ":
+        if (!inSearch) {
+          e.preventDefault();
+          if (this.active >= 0) this.choose(this.active);
+        }
+        break;
+      case "Escape":
+        e.preventDefault();
+        e.stopPropagation();
+        this.hide(true);
+        break;
+      case "Tab":
+        this.hide();
+        break;
+    }
+  }
+}
+
+Dropdown.count = 0;
+Dropdown.instances = new Set();
+Dropdown.bd = null;
+
+Dropdown.init = (root = document) => {
+  Dropdown.instances.forEach((d) => {
+    if (!d.el.isConnected) Dropdown.instances.delete(d);
+  });
+  root.querySelectorAll(".dd").forEach((el) => {
+    if (!el._dd) Dropdown.instances.add(new Dropdown(el));
+  });
+};
+Dropdown.get = (id) => {
+  const el = $(id);
+  return el ? el._dd : null;
+};
+Dropdown.hideAll = () => Dropdown.instances.forEach((d) => d.hide());
+Dropdown.setBackdrop = (on) => {
+  if (!Dropdown.bd) {
+    if (!on) return;
+    const b = document.createElement("div");
+    b.className = "dd-backdrop";
+    b.addEventListener("click", () => Dropdown.hideAll());
+    document.body.appendChild(b);
+    Dropdown.bd = b;
+  }
+  Dropdown.bd.classList.toggle("active", on);
+};
+
+document.addEventListener("click", (e) => {
+  Dropdown.instances.forEach((d) => {
+    if (d.isOpen && !d.el.contains(e.target)) d.hide();
+  });
+});
+const repositionDropdowns = () => Dropdown.instances.forEach((d) => d.isOpen && d.place());
+window.addEventListener("resize", repositionDropdowns);
+window.addEventListener("scroll", repositionDropdowns, true);
+
+const ddValue = (id) => {
+  const d = Dropdown.get(id);
+  return d ? d.value : "";
+};
+const ddSet = (id, v) => {
+  const d = Dropdown.get(id);
+  return d ? d.setValue(v) : false;
+};
+
+// =====================================================
+// SIDEBAR
+// =====================================================
+function setSidebar(open) {
+  $("sidebar").classList.toggle("active", open);
+  $("sidebarBackdrop").classList.toggle("active", open);
+}
+
+function toggleSidebar() {
+  setSidebar(!$("sidebar").classList.contains("active"));
+}
+
+// =====================================================
+// TOASTS
+// =====================================================
 function showToast(message, type = "success") {
-  const colors = {
-    success: "#2563eb",
-    error: "#dc2626",
-    warning: "#ea580c",
-    info: "#475569",
-  };
+  const colors = { success: "#12805c", error: "#c4322f", warning: "#b5650d", info: "#475467" };
   Toastify({
     text: message,
     duration: 3000,
@@ -52,42 +400,47 @@ function showToast(message, type = "success") {
     close: true,
     stopOnFocus: true,
     style: {
-      background: colors[type],
+      background: colors[type] || colors.info,
       color: "#fff",
-      borderRadius: "12px",
-      boxShadow: "0 10px 25px rgba(0,0,0,.15)",
+      borderRadius: "8px",
+      boxShadow: "0 8px 20px rgba(16,24,40,.15)",
     },
   }).showToast();
 }
 
-// ================= NAVIGATION =================
+// =====================================================
+// NAVIGATION
+// =====================================================
+const PAGES = {
+  dashboard: ["Tableau de bord", "Vue d'ensemble des passages et de l'état du module"],
+  reseaux: ["Réseaux", "Mode de connexion, Wi-Fi et serveur MQTT"],
+  module: ["Module", "Rôle, identité et modules esclaves"],
+  licence: ["Licence", "Génération et envoi de la licence au module"],
+  parametre: ["Paramètres", "Mises à jour, caractéristiques et capteur"],
+};
+
 function showPage(page, element) {
   document.querySelectorAll(".page").forEach((p) => p.classList.remove("active"));
-  document.getElementById(page).classList.add("active");
-  document.querySelectorAll(".menu a").forEach((link) => link.classList.remove("active"));
-  element.classList.add("active");
+  $(page).classList.add("active");
+  document.querySelectorAll(".menu-item").forEach((l) => l.classList.remove("active"));
+  if (element) element.classList.add("active");
 
-  const titles = {
-    dashboard: "Dashboard",
-    reseaux: "Réseaux",
-    module: "Module",
-    licence: "Licence",
-    parametre: "Paramètre",
-  };
-  animatePageTitle(titles[page] || page);
+  const info = PAGES[page] || [page, ""];
+  $("pageTitle").textContent = info[0];
+  $("pageSubtitle").textContent = info[1];
 
-  if (window.innerWidth <= 768) {
-    document.getElementById("sidebar").classList.remove("active");
-  }
+  setSidebar(false);
+  Dropdown.hideAll();
 
-  // Actions spécifiques à la page
   if (page === "module") {
     loadModuleConfig();
     loadConfiguredSlaves();
   }
 }
 
-// ================= PASSWORD MODAL =================
+// =====================================================
+// MODALES
+// =====================================================
 let currentAccessElement = null;
 let currentAccessTarget = "parametre";
 
@@ -95,89 +448,99 @@ function openPasswordModal(element, targetPage = "parametre") {
   currentAccessElement = element;
   currentAccessTarget = targetPage;
 
-  const modalTitle = document.getElementById("passwordModalTitleText");
-  const modalSubtitle = document.getElementById("passwordModalSubtitle");
-
-  if (modalTitle) {
-    modalTitle.textContent = targetPage === "licence" ? "Accès Licence" : "Accès Paramètre";
-  }
-  if (modalSubtitle) {
-    modalSubtitle.textContent = targetPage === "licence"
-      ? "Veuillez saisir le mot de passe pour accéder à la licence"
+  $("passwordModalTitleText").textContent = targetPage === "licence" ? "Accès Licence" : "Accès Paramètres";
+  $("passwordModalSubtitle").textContent =
+    targetPage === "licence"
+      ? "Saisissez le mot de passe pour accéder à la licence"
       : "Veuillez saisir le mot de passe";
-  }
 
-  if (window.innerWidth <= 768) {
-    document.getElementById("sidebar").classList.remove("active");
-  }
-  document.getElementById("passwordModal").classList.add("active");
-  document.getElementById("adminPassword").value = "";
-  document.getElementById("passwordError").innerText = "";
-  setTimeout(() => document.getElementById("adminPassword").focus(), 100);
-
-  document.getElementById("adminPassword").addEventListener("keydown", function (e) {
-    if (e.key === "Enter") confirmPassword();
-  });
+  setSidebar(false);
+  $("passwordModal").classList.add("active");
+  $("adminPassword").value = "";
+  $("passwordError").innerText = "";
+  setTimeout(() => $("adminPassword").focus(), 100);
 }
 
 function confirmPassword() {
-  let password = document.getElementById("adminPassword").value;
-  if (password === "1112") {
-    document.getElementById("passwordModal").classList.remove("active");
+  if ($("adminPassword").value === "1112") {
+    $("passwordModal").classList.remove("active");
     showToast("Accès autorisé", "success");
-    setTimeout(() => showPage(currentAccessTarget, currentAccessElement), 400);
+    setTimeout(() => showPage(currentAccessTarget, currentAccessElement), 300);
     return;
   }
-  document.getElementById("passwordError").innerText = "Mot de passe incorrect";
+  $("passwordError").innerText = "Mot de passe incorrect";
 }
 
-document.getElementById("passwordModal").addEventListener("click", function (e) {
-  if (e.target.id === "passwordModal") this.classList.remove("active");
+$("adminPassword").addEventListener("keydown", (e) => {
+  if (e.key === "Enter") confirmPassword();
 });
 
-// ================= WEBSOCKET =================
-var gateway = "ws://" + window.location.hostname + "/ws";
-var websocket;
+$("passwordModal").addEventListener("click", function (e) {
+  if (e.target === this) this.classList.remove("active");
+});
+
+function openAddSlaveModal() {
+  ["newSlaveId", "newSlaveMAC", "newSlaveSSID", "newSlavePassword"].forEach((id) => ($(id).value = ""));
+
+  // Pré-remplit les identifiants Wi-Fi du Master
+  fetch("/api/config/ap")
+    .then((res) => res.json())
+    .then((data) => {
+      if (data.ssid) $("newSlaveSSID").value = data.ssid;
+      if (data.password) $("newSlavePassword").value = data.password;
+    })
+    .catch((err) => console.error("Erreur récupération config AP master :", err));
+
+  $("addSlaveModal").classList.add("active");
+  setTimeout(() => $("newSlaveId").focus(), 100);
+}
+
+function closeAddSlaveModal() {
+  $("addSlaveModal").classList.remove("active");
+}
+
+$("addSlaveModal").addEventListener("click", function (e) {
+  if (e.target === this) closeAddSlaveModal();
+});
+
+document.addEventListener("keydown", (e) => {
+  if (e.key !== "Escape") return;
+  $("passwordModal").classList.remove("active");
+  closeAddSlaveModal();
+});
+
+// =====================================================
+// WEBSOCKET
+// =====================================================
+const gateway = "ws://" + window.location.hostname + "/ws";
+let websocket;
 
 function initWebSocket() {
-  console.log("Tentative de connexion WebSocket...");
   websocket = new WebSocket(gateway);
-  websocket.onopen = onOpen;
-  websocket.onclose = onClose;
+  websocket.onopen = () => console.log("Connexion WebSocket établie");
+  websocket.onclose = () => {
+    console.log("Connexion WebSocket fermée");
+    setTimeout(initWebSocket, 2000);
+  };
   websocket.onmessage = onMessage;
 }
 
-function onOpen(event) {
-  console.log("Connexion WebSocket établie");
-}
-
-function onClose(event) {
-  console.log("Connexion WebSocket fermée");
-  setTimeout(initWebSocket, 2000);
-}
-
 function onMessage(event) {
-  console.log("Message WebSocket reçu:", event.data);
-  const el = document.getElementById("passageCount");
+  const el = $("passageCount");
   if (!el) return;
-
   const total = normalizeCount(event.data);
-
-  if (total !== null) {
-    el.innerText = total;
-    // Animer la valeur
-    el.classList.remove("count-flash");
-    void el.offsetWidth;
-    el.classList.add("count-flash");
-  }
+  if (total !== null) el.innerText = total;
 }
 
 // Le firmware récent envoie {"total":0}, les anciennes versions envoyaient 0.
-// Toujours convertir en nombre avant de l'afficher pour éviter d'afficher l'objet JSON.
 function normalizeCount(value) {
   let candidate = value;
   if (typeof candidate === "string") {
-    try { candidate = JSON.parse(candidate); } catch (_) { /* valeur numérique brute */ }
+    try {
+      candidate = JSON.parse(candidate);
+    } catch (_) {
+      /* valeur numérique brute */
+    }
   }
   if (candidate && typeof candidate === "object" && typeof candidate.total !== "undefined") {
     candidate = candidate.total;
@@ -186,41 +549,39 @@ function normalizeCount(value) {
   return Number.isFinite(number) ? Math.max(0, Math.trunc(number)) : null;
 }
 
-// ================= MAC VALIDATION =================
+// =====================================================
+// VALIDATION MAC
+// =====================================================
 function isValidMAC(mac) {
   return /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(mac);
 }
 
-// ================= MODULE ROLE FIELDS TOGGLE =================
-// ================= MODULE FIELD TOGGLES =================
+// =====================================================
+// MODULE : liaison à un Master
+// =====================================================
 function toggleLinkToMasterFields() {
-  const isChecked = document.getElementById("linkToMasterCheckbox").checked;
-  const section = document.getElementById("slaveWifiSection");
-  if (section) {
-    section.style.display = isChecked ? "block" : "none";
-    document.getElementById("mac2").required = isChecked;
-    document.getElementById("slaveMasterSSID").required = isChecked;
-    document.getElementById("slaveMasterPassword").required = isChecked;
-  }
+  const isChecked = $("linkToMasterCheckbox").checked;
+  const section = $("slaveWifiSection");
+  if (!section) return;
+  section.style.display = isChecked ? "block" : "none";
+  $("mac2").required = isChecked;
+  $("slaveMasterSSID").required = isChecked;
+  $("slaveMasterPassword").required = isChecked;
 }
 
-// ================= MODULE FORM SUBMIT =================
-document.getElementById("moduleForm").addEventListener("submit", function (e) {
+$("moduleForm").addEventListener("submit", function (e) {
   e.preventDefault();
 
-  let mac1       = document.getElementById("mac1").value.trim();
-  let modId      = document.getElementById("moduleIdInput").value.trim();
-  let typeEntree = document.getElementById("typeEntree").value;
-  let isSlave    = document.getElementById("linkToMasterCheckbox").checked;
-
-  // Si on est déjà esclave (bouton Délier affiché)
-  const isAlreadySlave = document.getElementById("unlinkMasterBtn").style.display !== "none";
+  const mac1 = $("mac1").value.trim();
+  const modId = $("moduleIdInput").value.trim();
+  const typeEntree = ddValue("typeEntree");
+  const isSlave = $("linkToMasterCheckbox").checked;
+  const isAlreadySlave = $("unlinkMasterBtn").style.display !== "none";
 
   if (!isValidMAC(mac1)) {
     showToast("Adresse MAC locale invalide (AA:BB:CC:DD:EE:FF)", "error");
     return;
   }
-
   if (typeEntree === "") {
     showToast("Veuillez sélectionner un type d'entrée", "warning");
     return;
@@ -233,25 +594,24 @@ document.getElementById("moduleForm").addEventListener("submit", function (e) {
   };
 
   if (isSlave || isAlreadySlave) {
-    let mac2 = document.getElementById("mac2").value.trim();
+    const mac2 = $("mac2").value.trim();
     if (!isValidMAC(mac2)) {
       showToast("Adresse MAC du Master invalide", "error");
       return;
     }
     data.macSlave = mac2; // Le firmware associe macSlave au masterMAC dans le stockage
-    data.wifiSSID = document.getElementById("slaveMasterSSID").value.trim();
-    data.wifiPassword = document.getElementById("slaveMasterPassword").value.trim();
+    data.wifiSSID = $("slaveMasterSSID").value.trim();
+    data.wifiPassword = $("slaveMasterPassword").value.trim();
 
     if (data.wifiSSID === "") {
-      showToast("Veuillez entrer le SSID WiFi du Master", "warning");
+      showToast("Veuillez entrer le SSID Wi-Fi du Master", "warning");
       return;
     }
     if (data.wifiPassword.length < 8) {
-      showToast("Le mot de passe WiFi du Master doit faire au moins 8 caractères", "warning");
+      showToast("Le mot de passe Wi-Fi du Master doit faire au moins 8 caractères", "warning");
       return;
     }
   } else {
-    // Si Master, on met les valeurs par défaut pour délier
     data.macSlave = "00:00:00:00:00:00";
     data.wifiSSID = "";
     data.wifiPassword = "";
@@ -259,26 +619,28 @@ document.getElementById("moduleForm").addEventListener("submit", function (e) {
 
   showToast("Envoi de la configuration...", "info");
 
-  fetch("/api/config/module", {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(data),
-  })
-    .then((response) => {
-      if (!response.ok) throw new Error("HTTP error " + response.status);
-      return response.json();
+  track(
+    e.submitter,
+    fetch("/api/config/module", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(data),
     })
-    .then(() => showToast("Configuration enregistrée. Le module redémarre...", "success"))
-    .catch((error) => {
-      if (isSlave || isAlreadySlave || error.message.includes("Failed to fetch") || error.message.includes("NetworkError")) {
-        showToast("Configuration envoyée. Le module redémarre...", "success");
-      } else {
-        showToast("Erreur lors de la configuration: " + error.message, "error");
-      }
-    });
+      .then((response) => {
+        if (!response.ok) throw new Error("HTTP error " + response.status);
+        return response.json();
+      })
+      .then(() => showToast("Configuration enregistrée. Le module redémarre...", "success"))
+      .catch((error) => {
+        if (isSlave || isAlreadySlave || error.message.includes("Failed to fetch") || error.message.includes("NetworkError")) {
+          showToast("Configuration envoyée. Le module redémarre...", "success");
+        } else {
+          showToast("Erreur lors de la configuration : " + error.message, "error");
+        }
+      })
+  );
 });
 
-// ================= UNLINK FROM MASTER =================
 function unlinkFromMaster() {
   if (!confirm("Délier ce module du Master et le faire repasser en Master autonome ? Le module va redémarrer.")) return;
 
@@ -287,7 +649,7 @@ function unlinkFromMaster() {
     macSlave: "00:00:00:00:00:00",
     wifiSSID: "",
     wifiPassword: "",
-    typeE: document.getElementById("typeEntree").value || "vip"
+    typeE: ddValue("typeEntree") || "vip",
   };
 
   showToast("Envoi de la commande de déliaison...", "info");
@@ -297,165 +659,123 @@ function unlinkFromMaster() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   })
-    .then(response => {
-      showToast("Module délié. Redémarrage...", "success");
-    })
-    .catch(() => {
-      showToast("Module délié. Redémarrage...", "success");
-    });
+    .then(() => showToast("Module délié. Redémarrage...", "success"))
+    .catch(() => showToast("Module délié. Redémarrage...", "success"));
 }
 
-// ================= LOAD MODULE CONFIG =================
 function loadModuleConfig() {
   fetch("/api/config/module")
-    .then(res => res.json())
-    .then(data => {
+    .then((res) => res.json())
+    .then((data) => {
       const isSlave = data.role && data.role.toLowerCase() === "slave";
 
-      if (data.moduleId) document.getElementById("moduleIdInput").value = data.moduleId;
-      if (data.masterMAC) document.getElementById("mac2").value = data.masterMAC;
-      if (data.wifiSSID) document.getElementById("slaveMasterSSID").value = data.wifiSSID;
-      if (data.wifiPassword) document.getElementById("slaveMasterPassword").value = data.wifiPassword;
+      if (data.moduleId) $("moduleIdInput").value = data.moduleId;
+      if (data.masterMAC) $("mac2").value = data.masterMAC;
+      if (data.wifiSSID) $("slaveMasterSSID").value = data.wifiSSID;
+      if (data.wifiPassword) $("slaveMasterPassword").value = data.wifiPassword;
 
-      const toggleGroup = document.getElementById("linkToMasterToggleGroup");
-      const unlinkBtn   = document.getElementById("unlinkMasterBtn");
-      const wifiSection = document.getElementById("slaveWifiSection");
-      const slavesConfigSection = document.getElementById("slavesConfigSection");
+      const toggleGroup = $("linkToMasterToggleGroup");
+      const unlinkBtn = $("unlinkMasterBtn");
+      const wifiSection = $("slaveWifiSection");
+      const slavesConfigSection = $("slavesConfigSection");
 
       if (isSlave) {
-        // Mode Slave actif : désactiver les champs, masquer le toggle, afficher le bouton "Délier"
         if (toggleGroup) toggleGroup.style.display = "none";
-        if (unlinkBtn) unlinkBtn.style.display = "block";
+        if (unlinkBtn) unlinkBtn.style.display = "flex";
         if (wifiSection) {
           wifiSection.style.display = "block";
-          document.getElementById("mac2").disabled = true;
-          document.getElementById("slaveMasterSSID").disabled = true;
-          document.getElementById("slaveMasterPassword").disabled = true;
+          $("mac2").disabled = true;
+          $("slaveMasterSSID").disabled = true;
+          $("slaveMasterPassword").disabled = true;
         }
         if (slavesConfigSection) slavesConfigSection.style.display = "none";
       } else {
-        // Mode Master : laisser cocher, activer les champs
         if (toggleGroup) toggleGroup.style.display = "block";
         if (unlinkBtn) unlinkBtn.style.display = "none";
-        document.getElementById("linkToMasterCheckbox").checked = false;
+        $("linkToMasterCheckbox").checked = false;
         if (wifiSection) {
           wifiSection.style.display = "none";
-          document.getElementById("mac2").disabled = false;
-          document.getElementById("slaveMasterSSID").disabled = false;
-          document.getElementById("slaveMasterPassword").disabled = false;
+          $("mac2").disabled = false;
+          $("slaveMasterSSID").disabled = false;
+          $("slaveMasterPassword").disabled = false;
         }
         if (slavesConfigSection) slavesConfigSection.style.display = "block";
       }
 
-      // Mettre à jour la bannière de rôle
-      const roleBannerText = document.getElementById("roleBannerText");
-      const roleBanner     = document.getElementById("roleBanner");
+      const roleBannerText = $("roleBannerText");
+      const roleBanner = $("roleBanner");
       if (roleBannerText && data.role) {
-        const roleLabels = { master: "🟢 Ce module est le MASTER", slave: "🔵 Ce module est un SLAVE" };
-        roleBannerText.textContent = (data.moduleId ? `${data.moduleId} — ` : "") + (roleLabels[data.role.toLowerCase()] || data.role.toUpperCase());
-        if (roleBanner) roleBanner.className = "role-banner role-" + data.role.toLowerCase();
+        const roleLabels = { master: "Ce module est le Master", slave: "Ce module est un Slave" };
+        const role = data.role.toLowerCase();
+        roleBannerText.textContent = (data.moduleId ? `${data.moduleId} — ` : "") + (roleLabels[role] || cap(data.role));
+        if (roleBanner) roleBanner.className = "role-banner role-" + role;
       }
     })
-    .catch(err => console.error("Erreur module config fetch :", err));
+    .catch((err) => console.error("Erreur module config fetch :", err));
 
-  // Remplir automatiquement mac1
+  // Remplit automatiquement l'adresse MAC locale (lecture seule)
   fetch("/api/status")
-    .then(res => res.json())
-    .then(data => {
-      let mac1Input = document.getElementById("mac1");
+    .then((res) => res.json())
+    .then((data) => {
+      const mac1Input = $("mac1");
       if (mac1Input) {
-        mac1Input.value    = data.mac || "";
+        mac1Input.value = data.mac || "";
         mac1Input.readOnly = true;
-        mac1Input.style.backgroundColor = "rgba(255, 255, 255, 0.05)";
-        mac1Input.style.cursor = "not-allowed";
       }
     })
-    .catch(err => console.error("Erreur status fetch :", err));
+    .catch((err) => console.error("Erreur status fetch :", err));
 }
 
-// ================= LOAD CONFIGURED SLAVES =================
+// =====================================================
+// SLAVES CONFIGURÉS
+// =====================================================
 function loadConfiguredSlaves() {
-  const container = document.getElementById("moduleList");
+  const container = $("moduleList");
   if (!container) return;
   container.innerHTML = "";
 
-  // Récupérer les slaves configurés + les slaves auto-découverts
   Promise.all([
-    fetch("/api/slaves/configured").then(r => r.json()).catch(() => []),
-    fetch("/api/slaves").then(r => r.json()).catch(() => []),
+    fetch("/api/slaves/configured").then((r) => r.json()).catch(() => []),
+    fetch("/api/slaves").then((r) => r.json()).catch(() => []),
   ]).then(([configured, discovered]) => {
-    // Fusionner : slaves configurés d'abord, puis auto-découverts non encore configurés
-    const allMACs = new Set(configured.map(s => s.mac.toUpperCase()));
-    const extra = discovered.filter(s => !allMACs.has(s.mac.toUpperCase()));
+    const allMACs = new Set(configured.map((s) => s.mac.toUpperCase()));
+    const extra = discovered.filter((s) => !allMACs.has(s.mac.toUpperCase()));
     const allSlaves = [...configured, ...extra];
 
     if (allSlaves.length === 0) {
-      container.innerHTML = "<p class='empty-slaves'>Aucun module esclave. Cliquez sur <strong>Ajouter Slave</strong> pour en configurer un.</p>";
+      container.innerHTML =
+        "<p class='empty-slaves'>Aucun module esclave.<br>Cliquez sur <strong>Ajouter un slave</strong> pour en configurer un.</p>";
       return;
     }
 
-    allSlaves.forEach(slave => {
-      const isDiscovered  = !allMACs.has(slave.mac.toUpperCase());
+    allSlaves.forEach((slave) => {
+      const isDiscovered = !allMACs.has(slave.mac.toUpperCase());
       const card = document.createElement("div");
       card.className = "module-card";
       card.innerHTML = `
         <div class="module-card-header">
-          <div class="module-card-icon">
-            <i class="bi bi-cpu-fill"></i>
+          <div class="module-card-icon"><i class="bi bi-cpu-fill"></i></div>
+          <div class="module-card-title">
+            <h4>${esc(slave.moduleId || "Slave")}</h4>
+            <span class="module-card-tag ${isDiscovered ? "tag-auto" : "tag-manual"}">${isDiscovered ? "Auto-découvert" : "Configuré"}</span>
           </div>
-          <div>
-            <h4>${slave.moduleId || "Slave"}</h4>
-            <span class="module-card-tag ${isDiscovered ? "tag-auto" : "tag-manual"}">
-              ${isDiscovered ? "Auto-découvert" : "Configuré"}
-            </span>
-          </div>
-          <button class="btn-remove-slave" onclick="deleteSlave('${slave.mac}')" title="Supprimer">
+          <button type="button" class="btn-remove-slave" onclick="deleteSlave('${esc(slave.mac)}')" title="Supprimer" aria-label="Supprimer ce slave">
             <i class="bi bi-x-lg"></i>
           </button>
         </div>
         <div class="module-card-info">
-          <p><i class="bi bi-cpu"></i> MAC : <code>${slave.mac}</code></p>
-          ${slave.wifiSSID ? `<p><i class="bi bi-wifi"></i> SSID : ${slave.wifiSSID}</p>` : ""}
-          ${slave.ip ? `<p><i class="bi bi-link-45deg"></i> IP : <a href="http://${slave.ip}" target="_blank">${slave.ip}</a></p>` : ""}
-        </div>
-      `;
+          <p><i class="bi bi-cpu"></i>MAC : <code>${esc(slave.mac)}</code></p>
+          ${slave.wifiSSID ? `<p><i class="bi bi-wifi"></i>SSID : ${esc(slave.wifiSSID)}</p>` : ""}
+          ${slave.ip ? `<p><i class="bi bi-link-45deg"></i>IP : <a href="http://${esc(slave.ip)}" target="_blank" rel="noopener">${esc(slave.ip)}</a></p>` : ""}
+        </div>`;
       container.appendChild(card);
     });
   });
 }
 
-// ================= ADD SLAVE MODAL =================
-function openAddSlaveModal() {
-  document.getElementById("newSlaveId").value = "";
-  document.getElementById("newSlaveMAC").value = "";
-  document.getElementById("newSlaveSSID").value = "";
-  document.getElementById("newSlavePassword").value = "";
-  
-  // Pré-remplir les informations WiFi du Master AP
-  fetch("/api/config/ap")
-    .then(res => res.json())
-    .then(data => {
-      if (data.ssid)     document.getElementById("newSlaveSSID").value = data.ssid;
-      if (data.password) document.getElementById("newSlavePassword").value = data.password;
-    })
-    .catch(err => console.error("Erreur récupération config AP master :", err));
-
-  document.getElementById("addSlaveModal").classList.add("active");
-}
-
-function closeAddSlaveModal() {
-  document.getElementById("addSlaveModal").classList.remove("active");
-}
-
-document.getElementById("addSlaveModal").addEventListener("click", function (e) {
-  if (e.target.id === "addSlaveModal") closeAddSlaveModal();
-});
-
 function confirmAddSlave() {
-  const slaveId  = document.getElementById("newSlaveId").value.trim();
-  const slaveMac = document.getElementById("newSlaveMAC").value.trim();
-  const slaveSSID = document.getElementById("newSlaveSSID").value.trim();
-  const slavePwd  = document.getElementById("newSlavePassword").value.trim();
+  const slaveId = $("newSlaveId").value.trim();
+  const slaveMac = $("newSlaveMAC").value.trim();
 
   if (!isValidMAC(slaveMac)) {
     showToast("Adresse MAC invalide (AA:BB:CC:DD:EE:FF)", "error");
@@ -464,9 +784,9 @@ function confirmAddSlave() {
 
   const data = {
     mac: slaveMac,
-    moduleId: slaveId || ("Slave-" + Date.now()),
-    wifiSSID: slaveSSID,
-    wifiPassword: slavePwd,
+    moduleId: slaveId || "Slave-" + Date.now(),
+    wifiSSID: $("newSlaveSSID").value.trim(),
+    wifiPassword: $("newSlavePassword").value.trim(),
   };
 
   fetch("/api/slaves/add", {
@@ -474,17 +794,17 @@ function confirmAddSlave() {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
   })
-    .then(r => r.json())
-    .then(res => {
+    .then((r) => r.json())
+    .then((res) => {
       if (res.status === "ok" || res.status === "already_exists") {
-        showToast(res.status === "already_exists" ? "Ce slave existe déjà" : "Slave ajouté !", "success");
+        showToast(res.status === "already_exists" ? "Ce slave existe déjà" : "Slave ajouté", "success");
         closeAddSlaveModal();
         loadConfiguredSlaves();
       } else {
         showToast(res.error || "Erreur", "error");
       }
     })
-    .catch(err => showToast("Erreur réseau", "error"));
+    .catch(() => showToast("Erreur réseau", "error"));
 }
 
 function deleteSlave(mac) {
@@ -495,261 +815,266 @@ function deleteSlave(mac) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ mac }),
   })
-    .then(r => r.json())
-    .then(res => {
-      showToast(res.status === "ok" ? "Slave supprimé" : (res.error || "Erreur"), res.status === "ok" ? "success" : "error");
-      if (res.status === "ok") loadConfiguredSlaves();
+    .then((r) => r.json())
+    .then((res) => {
+      const ok = res.status === "ok";
+      showToast(ok ? "Slave supprimé" : res.error || "Erreur", ok ? "success" : "error");
+      if (ok) loadConfiguredSlaves();
     })
     .catch(() => showToast("Erreur réseau", "error"));
 }
 
-// ================= PASSAGE =================
+// =====================================================
+// COMPTEUR DE PASSAGES
+// =====================================================
 function incrementPassage() {
-  let currentVal = parseInt(document.getElementById("passageCount").innerText) || 0;
-  updateCountOnServer(currentVal + 1);
+  updateCountOnServer((parseInt($("passageCount").innerText) || 0) + 1);
 }
 
 function decrementPassage() {
-  let currentVal = parseInt(document.getElementById("passageCount").innerText) || 0;
-  if (currentVal > 0) updateCountOnServer(currentVal - 1);
+  const current = parseInt($("passageCount").innerText) || 0;
+  if (current > 0) updateCountOnServer(current - 1);
 }
 
 function updateCountOnServer(val) {
-  document.getElementById("passageCount").innerText = val;
+  $("passageCount").innerText = val;
   fetch("/api/count", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ count: val })
+    body: JSON.stringify({ count: val }),
   })
-    .then(res => res.json())
-    .then(() => console.log("Compteur mis à jour :", val))
-    .catch(err => console.error("Erreur mise à jour compteur :", err));
+    .then((res) => res.json())
+    .catch((err) => console.error("Erreur mise à jour compteur :", err));
 }
 
-// ================= RESEAUX =================
+// =====================================================
+// RÉSEAUX
+// =====================================================
 function changeNetworkMode() {
-  let mode = document.getElementById("modeNet").value;
-  let area = document.getElementById("networkArea");
+  const mode = ddValue("modeNet");
+  const area = $("networkArea");
 
   if (mode === "ap") {
     area.innerHTML = `
-  <div>
-    <h3 style="margin:25px 0 20px 0;">
-      <i class="bi bi-router"></i> 
-      Gestion Point d'accès
-    </h3>
-    <div class="input-group">
-      <label><i class="bi bi-wifi"></i> Nom Point d'accès</label>
-      <input type="text" id="apSSIDInput" placeholder="ESP32-NETWORK" minlength="4" maxlength="20" required>
-    </div>
-    <div class="input-group">
-      <label><i class="bi bi-lock-fill"></i> Mot de passe</label>
-      <div class="password-group">
-        <input type="password" id="apPassword" placeholder="********" minlength="8" maxlength="20" required>
-        <i class="bi bi-eye" onclick="togglePassword('apPassword', this)"></i>
+      <h3 class="area-title"><i class="bi bi-router"></i>Point d'accès</h3>
+      <div class="input-group">
+        <label><i class="bi bi-wifi"></i>Nom du point d'accès</label>
+        <input type="text" id="apSSIDInput" placeholder="ESP32-NETWORK" minlength="4" maxlength="20" required>
       </div>
-    </div>
-    <button class="btn" type="submit" onclick="submit_reseau(event)">
-      <i class="bi bi-check-circle"></i>
-      Confirmer
-    </button>
-  </div>`;
+      <div class="input-group">
+        <label><i class="bi bi-lock-fill"></i>Mot de passe</label>
+        <div class="password-group">
+          <input type="password" id="apPassword" placeholder="********" minlength="8" maxlength="20" required>
+          <i class="bi bi-eye" onclick="togglePassword('apPassword', this)"></i>
+        </div>
+      </div>
+      <button class="btn" type="submit" onclick="submit_reseau(event)">
+        <i class="bi bi-check-circle"></i>Confirmer
+      </button>`;
 
     fetch("/api/config/ap")
-      .then(res => res.json())
-      .then(data => {
-        document.getElementById("apSSIDInput").value = data.ssid || "";
-        document.getElementById("apPassword").value  = data.password || "";
+      .then((res) => res.json())
+      .then((data) => {
+        $("apSSIDInput").value = data.ssid || "";
+        $("apPassword").value = data.password || "";
       })
-      .catch(err => console.error("Erreur AP fetch :", err));
+      .catch((err) => console.error("Erreur AP fetch :", err));
   }
 
   if (mode === "online") {
     area.innerHTML = `
-    <div>
-      <h3 style="margin:25px 0 20px 0;"><i class="bi bi-globe"></i> Mode En Ligne</h3>
+      <h3 class="area-title"><i class="bi bi-globe"></i>Connexion Wi-Fi</h3>
       <div class="input-group">
-        <label><i class="bi bi-router"></i> SSID WiFi</label>
-        <input type="text" id="wifiSSIDInput" placeholder="Nom WiFi" minlength="4" maxlength="20" required>
+        <label><i class="bi bi-router"></i>SSID Wi-Fi</label>
+        <input type="text" id="wifiSSIDInput" placeholder="Nom du Wi-Fi" minlength="4" maxlength="20" required>
       </div>
       <div class="input-group">
-        <label><i class="bi bi-lock-fill"></i> Mot de passe</label>
+        <label><i class="bi bi-lock-fill"></i>Mot de passe</label>
         <div class="password-group">
           <input type="password" id="wifiPassword" placeholder="********" minlength="8" maxlength="20" required>
           <i class="bi bi-eye" onclick="togglePassword('wifiPassword', this)"></i>
         </div>
       </div>
-      <h3 style="margin:25px 0 20px 0;"><i class="bi bi-broadcast"></i> Serveur MQTT Mosquitto</h3>
+      <h3 class="area-title"><i class="bi bi-broadcast"></i>Serveur MQTT (Mosquitto)</h3>
       <div class="input-group">
-        <label><i class="bi bi-server"></i> Adresse IP du Broker</label>
+        <label><i class="bi bi-server"></i>Adresse IP du broker</label>
         <input type="text" id="mqttServerInput" placeholder="192.168.1.2" required>
       </div>
       <div class="input-group">
-        <label><i class="bi bi-signpost-split"></i> Port du Broker</label>
+        <label><i class="bi bi-signpost-split"></i>Port du broker</label>
         <input type="number" id="mqttPortInput" placeholder="1883" required>
       </div>
       <div class="input-group">
-        <label><i class="bi bi-person-fill"></i> Utilisateur (optionnel)</label>
-        <input type="text" id="mqttUserInput" placeholder="Ex: mon_user">
+        <label><i class="bi bi-person-fill"></i>Utilisateur (optionnel)</label>
+        <input type="text" id="mqttUserInput" placeholder="Ex : mon_user">
       </div>
       <div class="input-group">
-        <label><i class="bi bi-lock-fill"></i> Mot de passe (optionnel)</label>
+        <label><i class="bi bi-lock-fill"></i>Mot de passe (optionnel)</label>
         <div class="password-group">
           <input type="password" id="mqttPasswordInput" placeholder="********">
           <i class="bi bi-eye" onclick="togglePassword('mqttPasswordInput', this)"></i>
         </div>
       </div>
       <button class="btn" type="submit" onclick="submit_reseau(event)">
-        <i class="bi bi-check-circle"></i>
-        Confirmer
-      </button>
-    </div>`;
+        <i class="bi bi-check-circle"></i>Confirmer
+      </button>`;
 
-    Promise.all([
-      fetch("/api/wifi").then(res => res.json()),
-      fetch("/api/mqtt").then(res => res.json()),
-    ])
+    Promise.all([fetch("/api/wifi").then((res) => res.json()), fetch("/api/mqtt").then((res) => res.json())])
       .then(([wifiData, mqttData]) => {
-        document.getElementById("wifiSSIDInput").value  = wifiData.ssid || "";
-        document.getElementById("wifiPassword").value   = wifiData.password || "";
-        document.getElementById("mqttServerInput").value = mqttData.server || "192.168.1.2";
-        document.getElementById("mqttPortInput").value  = mqttData.port || 1883;
-        document.getElementById("mqttUserInput").value  = mqttData.user || "";
-        document.getElementById("mqttPasswordInput").value = mqttData.password || "";
+        $("wifiSSIDInput").value = wifiData.ssid || "";
+        $("wifiPassword").value = wifiData.password || "";
+        $("mqttServerInput").value = mqttData.server || "192.168.1.2";
+        $("mqttPortInput").value = mqttData.port || 1883;
+        $("mqttUserInput").value = mqttData.user || "";
+        $("mqttPasswordInput").value = mqttData.password || "";
       })
-      .catch(err => console.error("Erreur WiFi/MQTT fetch :", err));
+      .catch((err) => console.error("Erreur WiFi/MQTT fetch :", err));
   }
 }
 
-// ================= RESEAUX SUBMIT =================
 function submit_reseau(event) {
   event.preventDefault();
-  let mode = document.getElementById("modeNet").value;
+  const mode = ddValue("modeNet");
 
   if (mode === "ap") {
-    let ssid     = document.getElementById("apSSIDInput").value.trim();
-    let password = document.getElementById("apPassword").value.trim();
-    if (ssid === "" || password === "") { showToast("Veuillez remplir tous les champs", "warning"); return; }
-    if (ssid.length < 4 || ssid.length > 20) { showToast("Le nom doit contenir entre 4 et 20 caractères", "warning"); return; }
-    if (password.length < 8 || password.length > 20) { showToast("Le mot de passe doit contenir entre 8 et 20 caractères", "warning"); return; }
+    const ssid = $("apSSIDInput").value.trim();
+    const password = $("apPassword").value.trim();
+    if (ssid === "" || password === "") return showToast("Veuillez remplir tous les champs", "warning");
+    if (ssid.length < 4 || ssid.length > 20) return showToast("Le nom doit contenir entre 4 et 20 caractères", "warning");
+    if (password.length < 8 || password.length > 20)
+      return showToast("Le mot de passe doit contenir entre 8 et 20 caractères", "warning");
 
     fetch("/api/config/ap", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ ssid, password }),
     })
-      .then(res => res.json())
-      .then(result => showToast(result.message || "Configuration AP enregistrée", "success"))
-      .catch(error => showToast(error.message, "error"));
-
+      .then((res) => res.json())
+      .then((result) => showToast(result.message || "Configuration du point d'accès enregistrée", "success"))
+      .catch((error) => showToast(error.message, "error"));
   } else if (mode === "online") {
-    let ssid   = document.getElementById("wifiSSIDInput").value.trim();
-    let password = document.getElementById("wifiPassword").value.trim();
-    let server = document.getElementById("mqttServerInput").value.trim();
-    let port   = parseInt(document.getElementById("mqttPortInput").value) || 1883;
-    let user   = document.getElementById("mqttUserInput").value.trim();
-    let pass   = document.getElementById("mqttPasswordInput").value.trim();
+    const ssid = $("wifiSSIDInput").value.trim();
+    const password = $("wifiPassword").value.trim();
+    const server = $("mqttServerInput").value.trim();
+    const port = parseInt($("mqttPortInput").value) || 1883;
+    const user = $("mqttUserInput").value.trim();
+    const pass = $("mqttPasswordInput").value.trim();
 
-    if (ssid === "" || password === "" || server === "") { showToast("Veuillez remplir tous les champs", "warning"); return; }
-    if (ssid.length < 4 || ssid.length > 20) { showToast("Le nom WiFi doit contenir entre 4 et 20 caractères", "warning"); return; }
-    if (password.length < 8 || password.length > 20) { showToast("Le mot de passe WiFi doit contenir entre 8 et 20 caractères", "warning"); return; }
+    if (ssid === "" || password === "" || server === "") return showToast("Veuillez remplir tous les champs", "warning");
+    if (ssid.length < 4 || ssid.length > 20)
+      return showToast("Le nom Wi-Fi doit contenir entre 4 et 20 caractères", "warning");
+    if (password.length < 8 || password.length > 20)
+      return showToast("Le mot de passe Wi-Fi doit contenir entre 8 et 20 caractères", "warning");
 
-    fetch("/api/wifi", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ ssid, password }) })
-      .then(resWifi => {
-        if (!resWifi.ok) throw new Error("Échec de la configuration WiFi");
-        return fetch("/api/mqtt", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ server, port, user, password: pass }) });
+    fetch("/api/wifi", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ssid, password }),
+    })
+      .then((resWifi) => {
+        if (!resWifi.ok) throw new Error("Échec de la configuration Wi-Fi");
+        return fetch("/api/mqtt", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ server, port, user, password: pass }),
+        });
       })
-      .then(resMqtt => {
+      .then((resMqtt) => {
         if (!resMqtt.ok) throw new Error("Échec de la configuration MQTT");
-        showToast("Configuration WiFi & MQTT enregistrée avec succès !", "success");
+        showToast("Configuration Wi-Fi et MQTT enregistrée", "success");
       })
-      .catch(err => showToast(err.message, "error"));
+      .catch((err) => showToast(err.message, "error"));
   }
 }
 
-// ================= FIRMWARE =================
+// =====================================================
+// FIRMWARE
+// =====================================================
 function changeFirmwareMode() {
-  let mode = document.getElementById("firmwareMode").value;
-  let area = document.getElementById("firmwareArea");
+  const mode = ddValue("firmwareMode");
+  const area = $("firmwareArea");
 
   if (mode === "offline") {
     area.innerHTML = `
-      <div>
-        <h3 style="margin:25px 0 20px 0;"><i class="bi bi-usb-drive"></i> Mise à jour Hors Ligne</h3>
-        <div class="input-group">
-          <label><i class="bi bi-file-earmark-arrow-up"></i> Sélectionner Firmware</label>
-          <input type="file" id="firmwareFile" accept=".bin" required>
-        </div>
-        <button class="btn" type="button" onclick="uploadOfflineFirmware()">
-          <i class="bi bi-upload"></i> Téléverser Firmware
-        </button>
-      </div>`;
+      <h3 class="area-title"><i class="bi bi-usb-drive"></i>Mise à jour hors ligne</h3>
+      <div class="input-group">
+        <label><i class="bi bi-file-earmark-arrow-up"></i>Fichier firmware (.bin)</label>
+        <input type="file" id="firmwareFile" accept=".bin" required>
+      </div>
+      <button class="btn" type="button" onclick="uploadOfflineFirmware(this)">
+        <i class="bi bi-upload"></i>Téléverser le firmware
+      </button>`;
   }
 
   if (mode === "online") {
     area.innerHTML = `
-      <div>
-        <h3 style="margin:25px 0 20px 0;"><i class="bi bi-cloud-arrow-down"></i> Mise à jour En Ligne</h3>
-        <div class="input-group">
-          <label><i class="bi bi-hdd-network"></i> Choisir le module</label>
-          <select id="onlineModule">
-            <option>Module Master</option>
-            <option>Module Slave 1</option>
-            <option>Module Slave 2</option>
-            <option>Module Slave 3</option>
-          </select>
+      <h3 class="area-title"><i class="bi bi-cloud-arrow-down"></i>Mise à jour en ligne</h3>
+      <div class="input-group">
+        <label><i class="bi bi-hdd-network"></i>Module à mettre à jour</label>
+        <div class="dd" id="onlineModule" data-value="Module Master">
+          <span data-value="Module Master">Module Master</span>
+          <span data-value="Module Slave 1">Module Slave 1</span>
+          <span data-value="Module Slave 2">Module Slave 2</span>
+          <span data-value="Module Slave 3">Module Slave 3</span>
         </div>
-        <div class="input-group">
-          <label><i class="bi bi-link-45deg"></i> URL Firmware</label>
-          <input type="url" id="firmwareUrl" placeholder="https://example.com/firmware.bin" required>
-        </div>
-        <button class="btn" type="button" onclick="uploadOnlineFirmware()">
-          <i class="bi bi-cloud-upload"></i> Télécharger et Téléverser
-        </button>
-      </div>`;
+      </div>
+      <div class="input-group">
+        <label><i class="bi bi-link-45deg"></i>URL du firmware</label>
+        <input type="url" id="firmwareUrl" placeholder="https://example.com/firmware.bin" required>
+      </div>
+      <button class="btn" type="button" onclick="uploadOnlineFirmware()">
+        <i class="bi bi-cloud-upload"></i>Télécharger et téléverser
+      </button>`;
+    Dropdown.init(area);
   }
 }
 
-function uploadOfflineFirmware() {
-  let file = document.getElementById("firmwareFile").files[0];
-  if (!file) { showToast("Veuillez sélectionner un fichier .bin", "warning"); return; }
-  if (!file.name.endsWith(".bin")) { showToast("Seuls les fichiers .bin sont acceptés", "error"); return; }
+function uploadOfflineFirmware(btn) {
+  const file = $("firmwareFile").files[0];
+  if (!file) return showToast("Veuillez sélectionner un fichier .bin", "warning");
+  if (!file.name.endsWith(".bin")) return showToast("Seuls les fichiers .bin sont acceptés", "error");
 
-  let formData = new FormData();
+  const formData = new FormData();
   formData.append("firmware", file);
 
-  fetch("/update", { method: "POST", body: formData })
-    .then(res => res.json())
-    .then(result => showToast(result.message || "Firmware envoyé avec succès", "success"))
-    .catch(error => showToast(error.message, "error"));
+  track(
+    btn,
+    fetch("/update", { method: "POST", body: formData })
+      .then((res) => res.json())
+      .then((result) => showToast(result.message || "Firmware envoyé avec succès", "success"))
+      .catch((error) => showToast(error.message, "error"))
+  );
 }
 
 function uploadOnlineFirmware() {
-  let url = document.getElementById("firmwareUrl").value.trim();
-  if (url === "") { showToast("Veuillez saisir l'adresse du firmware", "warning"); return; }
-  if (!url.startsWith("http://") && !url.startsWith("https://")) { showToast("L'adresse doit commencer par http:// ou https://", "error"); return; }
+  const url = $("firmwareUrl").value.trim();
+  if (url === "") return showToast("Veuillez saisir l'adresse du firmware", "warning");
+  if (!url.startsWith("http://") && !url.startsWith("https://"))
+    return showToast("L'adresse doit commencer par http:// ou https://", "error");
 
   fetch("http://localhost:3000/update-online", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ module: document.getElementById("onlineModule").value, firmwareUrl: url }),
+    body: JSON.stringify({ module: ddValue("onlineModule"), firmwareUrl: url }),
   })
-    .then(res => res.json())
-    .then(result => showToast(result.message || "Le téléchargement du firmware a démarré", "success"))
-    .catch(error => showToast(error.message, "error"));
+    .then((res) => res.json())
+    .then((result) => showToast(result.message || "Le téléchargement du firmware a démarré", "success"))
+    .catch((error) => showToast(error.message, "error"));
 }
 
-// ================= PARAMETRE SUB MENU =================
+// =====================================================
+// PARAMÈTRES : sous-menu
+// =====================================================
 function showSettingPage(pageId, element) {
-  document.querySelectorAll(".setting-page").forEach(page => page.classList.remove("active"));
-  document.getElementById(pageId).classList.add("active");
-  document.querySelectorAll(".settings-btn").forEach(btn => btn.classList.remove("active"));
+  document.querySelectorAll(".setting-page").forEach((p) => p.classList.remove("active"));
+  $(pageId).classList.add("active");
+  document.querySelectorAll(".settings-btn").forEach((b) => b.classList.remove("active"));
   element.classList.add("active");
+  Dropdown.hideAll();
 }
 
-// ================= TOGGLE PASSWORD =================
 function togglePassword(inputId, icon) {
-  let input = document.getElementById(inputId);
+  const input = $(inputId);
   if (input.type === "password") {
     input.type = "text";
     icon.classList.replace("bi-eye", "bi-eye-slash");
@@ -759,12 +1084,16 @@ function togglePassword(inputId, icon) {
   }
 }
 
-// ================= LICENCE =================
+// =====================================================
+// LICENCE
+// =====================================================
 function randomPart(length) {
   const chars = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
   const random = new Uint32Array(length);
   crypto.getRandomValues(random);
-  return Array.from(random).map(v => chars[v % chars.length]).join("");
+  return Array.from(random)
+    .map((v) => chars[v % chars.length])
+    .join("");
 }
 
 function generateLicense(mac, expiryMark) {
@@ -773,45 +1102,43 @@ function generateLicense(mac, expiryMark) {
 }
 
 function getDeviceMac() {
-  const value = window.deviceMAC || document.getElementById("deviceMAC")?.innerText || "";
-  return /^([0-9A-Fa-f]{2}:){5}[0-9A-Fa-f]{2}$/.test(value) ? value : null;
+  const el = $("deviceMAC");
+  const value = window.deviceMAC || (el ? el.innerText : "") || "";
+  return isValidMAC(value) ? value : null;
+}
+
+function expiryMarkFor(date, duration) {
+  if (duration === 0) return "00000000";
+  const d = new Date(date.getTime());
+  d.setDate(d.getDate() + duration);
+  return `${d.getFullYear()}${String(d.getMonth() + 1).padStart(2, "0")}${String(d.getDate()).padStart(2, "0")}`;
 }
 
 function updateLicenseExpiry() {
-  const dateInput = document.getElementById("licenseDate");
-  const durationSelect = document.getElementById("licenseDuration");
-  const expiryInput = document.getElementById("licenseExpiry");
-  const codeInput = document.getElementById("licenseCode");
-  
-  let creationDate = dateInput.dataset.iso ? new Date(dateInput.dataset.iso) : new Date();
-  const duration = parseInt(durationSelect.value);
-  
-  let expiryMark = "00000000";
-  
+  const dateInput = $("licenseDate");
+  const expiryInput = $("licenseExpiry");
+  const codeInput = $("licenseCode");
+
+  const creationDate = dateInput.dataset.iso ? new Date(dateInput.dataset.iso) : new Date();
+  const duration = parseInt(ddValue("licenseDuration"));
+
   if (duration === 0) {
     expiryInput.value = "Illimitée";
     expiryInput.dataset.iso = "";
   } else {
-    let expiryDate = new Date(creationDate.getTime());
+    const expiryDate = new Date(creationDate.getTime());
     expiryDate.setDate(expiryDate.getDate() + duration);
     expiryInput.value = expiryDate.toLocaleString();
     expiryInput.dataset.iso = expiryDate.toISOString();
-    
-    const yyyy = expiryDate.getFullYear();
-    const mm = String(expiryDate.getMonth() + 1).padStart(2, '0');
-    const dd = String(expiryDate.getDate()).padStart(2, '0');
-    expiryMark = `${yyyy}${mm}${dd}`;
   }
-  
-  // Si le code est déjà affiché et commence par SMC, on le régénère avec la nouvelle expiration
+
+  // Si un code est affiché, on le régénère avec la nouvelle expiration
   if (codeInput.value && codeInput.value.startsWith("SMC-")) {
     let mac = getDeviceMac();
     const previousMac = codeInput.value.match(/^SMC-([0-9A-F]{12})-/i);
-    if (!mac && previousMac) {
-      mac = previousMac[1].match(/.{2}/g).join(":");
-    }
+    if (!mac && previousMac) mac = previousMac[1].match(/.{2}/g).join(":");
     if (!mac) return;
-    codeInput.value = generateLicense(mac, expiryMark);
+    codeInput.value = generateLicense(mac, expiryMarkFor(creationDate, duration));
   }
 }
 
@@ -824,82 +1151,47 @@ async function generateNewLicense() {
       if (response.ok && isValidMAC(status.mac)) {
         mac = status.mac;
         window.deviceMAC = mac;
-        const macElement = document.getElementById("deviceMAC");
-        if (macElement) macElement.innerText = mac;
+        if ($("deviceMAC")) $("deviceMAC").innerText = mac;
       }
     } catch (_) {
-      // Le message ci-dessous explique clairement à l'utilisateur quoi faire.
+      /* le message ci-dessous indique quoi faire */
     }
   }
-  if (!mac) {
-    showToast("Adresse MAC du module indisponible", "error");
-    return;
-  }
+  if (!mac) return showToast("Adresse MAC du module indisponible", "error");
 
   const now = new Date();
-  const dateInput = document.getElementById("licenseDate");
-  dateInput.value = now.toLocaleString();
-  dateInput.dataset.iso = now.toISOString();
-  
-  const durationSelect = document.getElementById("licenseDuration");
-  const duration = parseInt(durationSelect.value);
-  
-  let expiryMark = "00000000";
-  if (duration !== 0) {
-    let expiryDate = new Date(now.getTime());
-    expiryDate.setDate(expiryDate.getDate() + duration);
-    const yyyy = expiryDate.getFullYear();
-    const mm = String(expiryDate.getMonth() + 1).padStart(2, '0');
-    const dd = String(expiryDate.getDate()).padStart(2, '0');
-    expiryMark = `${yyyy}${mm}${dd}`;
-  }
-  
-  const code = generateLicense(mac, expiryMark);
-  document.getElementById("licenseCode").value = code;
-  
+  $("licenseDate").value = now.toLocaleString();
+  $("licenseDate").dataset.iso = now.toISOString();
+
+  const duration = parseInt(ddValue("licenseDuration"));
+  $("licenseCode").value = generateLicense(mac, expiryMarkFor(now, duration));
+
   updateLicenseExpiry();
   sendLicense(true);
 }
 
 function copyLicense() {
-  const licence = document.getElementById("licenseCode").value;
-  if (!licence) { showToast("Aucune licence générée", "warning"); return; }
+  const licence = $("licenseCode").value;
+  if (!licence) return showToast("Aucune licence générée", "warning");
   navigator.clipboard.writeText(licence);
   showToast("Licence copiée", "success");
 }
 
 function checkLicenseStatus(expiryIso) {
-  const banner = document.getElementById("licenseAlertBanner");
+  const banner = $("licenseAlertBanner");
   if (!banner) return;
-  
-  if (!expiryIso) {
-    banner.style.display = "none";
-    return;
-  }
-  
-  const expiryDate = new Date(expiryIso);
-  const now = new Date();
-  
-  if (expiryDate < now) {
-    banner.style.display = "flex";
-  } else {
-    banner.style.display = "none";
-  }
+  banner.style.display = expiryIso && new Date(expiryIso) < new Date() ? "flex" : "none";
 }
 
 function sendLicense(silent = false) {
-  const licence = document.getElementById("licenseCode").value;
-  if (!licence) { showToast("Générez une licence d'abord", "warning"); return; }
-
-  const dateInput = document.getElementById("licenseDate");
-  const durationSelect = document.getElementById("licenseDuration");
-  const expiryInput = document.getElementById("licenseExpiry");
+  const licence = $("licenseCode").value;
+  if (!licence) return showToast("Générez une licence d'abord", "warning");
 
   const payload = {
     licence: licence,
-    date: dateInput.dataset.iso || new Date().toISOString(),
-    duration: parseInt(durationSelect.value),
-    expiry: expiryInput.dataset.iso || ""
+    date: $("licenseDate").dataset.iso || new Date().toISOString(),
+    duration: parseInt(ddValue("licenseDuration")),
+    expiry: $("licenseExpiry").dataset.iso || "",
   };
 
   fetch("/api/config/license", {
@@ -907,393 +1199,335 @@ function sendLicense(silent = false) {
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(payload),
   })
-    .then(async r => {
+    .then(async (r) => {
       const result = await r.json();
       if (!r.ok) throw new Error(result.error || "Erreur serveur");
       return result;
     })
-    .then(result => {
+    .then((result) => {
       if (result.status === "ok") {
-        if (!silent) showToast("Licence enregistrée sur le module", "success");
+        if (silent !== true) showToast("Licence enregistrée sur le module", "success");
         checkLicenseStatus(payload.expiry);
       } else {
         showToast(result.error || "Erreur de sauvegarde", "error");
       }
     })
-    .catch(error => showToast("Erreur de connexion : " + error.message, "error"));
+    .catch((error) => showToast("Erreur de connexion : " + error.message, "error"));
 }
 
-// ================= SENSOR THRESHOLD =================
-window.moduleThresholds = window.moduleThresholds || { "local": 80 };
+// =====================================================
+// SEUIL DU CAPTEUR
+// =====================================================
+window.moduleThresholds = window.moduleThresholds || { local: 80 };
 
 function loadSensorConfig() {
   fetch("/api/config/sensor")
-    .then(res => res.json())
-    .then(data => {
-      const input  = document.getElementById("seuilInput");
-      const slider = document.getElementById("seuilSlider");
-      const label  = document.getElementById("seuilValue");
-      if (!input) return;
-      if (data.seuil !== undefined) {
-        window.moduleThresholds["local"] = data.seuil;
-        // Only load if select is set to "local"
-        const select = document.getElementById("seuilModuleSelect");
-        if (!select || select.value === "local") {
-          input.value = data.seuil;
-          if (slider) { slider.min = data.seuilMin || 10; slider.max = data.seuilMax || 500; slider.value = data.seuil; }
-          if (label) label.textContent = data.seuil + " cm";
+    .then((res) => res.json())
+    .then((data) => {
+      const input = $("seuilInput");
+      const slider = $("seuilSlider");
+      if (!input || data.seuil === undefined) return;
+      window.moduleThresholds["local"] = data.seuil;
+      if (ddValue("seuilModuleSelect") === "local") {
+        input.value = data.seuil;
+        if (slider) {
+          slider.min = data.seuilMin || 10;
+          slider.max = data.seuilMax || 500;
+          slider.value = data.seuil;
         }
+        $("seuilValue").textContent = data.seuil + " cm";
       }
     })
-    .catch(err => console.error("Erreur fetch seuil :", err));
+    .catch((err) => console.error("Erreur fetch seuil :", err));
 }
 
 function onSeuilModuleChange(val) {
   const threshold = window.moduleThresholds[val] || 80;
-  const input  = document.getElementById("seuilInput");
-  const slider = document.getElementById("seuilSlider");
-  const label  = document.getElementById("seuilValue");
-  if (input) input.value = threshold;
-  if (slider) slider.value = threshold;
-  if (label) label.textContent = threshold + " cm";
+  $("seuilInput").value = threshold;
+  $("seuilSlider").value = threshold;
+  $("seuilValue").textContent = threshold + " cm";
 }
 
-function syncSeuilSlider(val) {
-  const input = document.getElementById("seuilInput");
-  const label = document.getElementById("seuilValue");
-  if (input) input.value = val;
-  if (label) label.textContent = val + " cm";
-  
-  // Sync to current selection map
-  const select = document.getElementById("seuilModuleSelect");
-  const target = select ? select.value : "local";
-  window.moduleThresholds[target] = parseInt(val);
+function syncSeuil(val, source) {
+  if (source !== "input") $("seuilInput").value = val;
+  if (source !== "slider") $("seuilSlider").value = val;
+  $("seuilValue").textContent = val + " cm";
+  window.moduleThresholds[ddValue("seuilModuleSelect") || "local"] = parseInt(val);
 }
+const syncSeuilSlider = (val) => syncSeuil(val, "slider");
+const syncSeuilInput = (val) => syncSeuil(val, "input");
 
-function syncSeuilInput(val) {
-  const slider = document.getElementById("seuilSlider");
-  const label  = document.getElementById("seuilValue");
-  if (slider) slider.value = val;
-  if (label)  label.textContent = val + " cm";
-  
-  // Sync to current selection map
-  const select = document.getElementById("seuilModuleSelect");
-  const target = select ? select.value : "local";
-  window.moduleThresholds[target] = parseInt(val);
-}
+function saveSensorConfig(btn) {
+  const val = parseInt($("seuilInput").value);
+  if (isNaN(val) || val < 10 || val > 500) return showToast("Valeur invalide (10 à 500 cm)", "error");
 
-function saveSensorConfig() {
-  const input = document.getElementById("seuilInput");
-  if (!input) return;
-  const val = parseInt(input.value);
-  if (isNaN(val) || val < 10 || val > 500) { showToast("Valeur invalide (10 – 500 cm)", "error"); return; }
-
-  const select = document.getElementById("seuilModuleSelect");
-  const target = select ? select.value : "local";
-
+  const target = ddValue("seuilModuleSelect") || "local";
   const payload = { seuil: val };
-  if (target !== "local") {
-    payload.mac = target;
-  }
+  if (target !== "local") payload.mac = target;
 
-  fetch("/api/config/sensor", {
+  track(
+    btn,
+    fetch("/api/config/sensor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload),
+    })
+      .then((res) => res.json())
+      .then((data) => {
+        if (data.status === "ok") {
+          showToast("Seuil mis à jour : " + val + " cm", "success");
+          window.moduleThresholds[target] = val;
+        } else {
+          showToast(data.error || "Erreur serveur", "error");
+        }
+      })
+      .catch(() => showToast("Erreur de connexion", "error"))
+  );
+}
+
+// =====================================================
+// ÉTAT DU MODULE
+// =====================================================
+function updateDeviceStatus() {
+  fetch("/api/status")
+    .then((res) => res.json())
+    .then((data) => {
+      if ((!websocket || websocket.readyState !== WebSocket.OPEN) && $("passageCount")) {
+        const total = normalizeCount(data.total);
+        $("passageCount").innerText = total === null ? 0 : total;
+      }
+
+      if ($("deviceMAC")) $("deviceMAC").innerText = data.mac || "Inconnu";
+      if (data.mac) window.deviceMAC = data.mac;
+
+      const role = cap(data.role || "neutral");
+      if ($("deviceRole")) $("deviceRole").innerText = data.moduleId ? `${data.moduleId} (${role})` : role;
+
+      const isSlave = data.role === "slave";
+      const modeText = isSlave
+        ? data.connected
+          ? "Connecté au Master AP"
+          : "Déconnecté du Master AP"
+        : data.connected
+          ? "En ligne (STA + AP)"
+          : "Hors ligne (AP)";
+      if ($("deviceMode")) $("deviceMode").innerText = modeText;
+
+      const dashMode = $("dashMode");
+      if (dashMode) {
+        dashMode.innerText = isSlave ? modeText : data.connected ? "En ligne" : "Hors ligne";
+        const icon = dashMode.parentElement.nextElementSibling && dashMode.parentElement.nextElementSibling.querySelector("i");
+        if (icon) {
+          icon.className = data.connected ? "bi bi-wifi" : "bi bi-wifi-off";
+          icon.parentElement.className = "card-icon " + (data.connected ? "green" : "red");
+        }
+      }
+
+      // Bandeau de rôle
+      const roleBannerText = $("roleBannerText");
+      const roleBanner = $("roleBanner");
+      if (roleBannerText && data.role) {
+        const r = data.role.toLowerCase();
+        const labels = {
+          master: "Ce module est le Master",
+          slave: data.connected ? "Ce module est un Slave (connecté au Master)" : "Ce module est un Slave (déconnecté du Master)",
+        };
+        roleBannerText.textContent = (data.moduleId ? `${data.moduleId} — ` : "") + (labels[r] || cap(data.role));
+        if (roleBanner) roleBanner.className = "role-banner " + (r === "slave" && !data.connected ? "role-offline" : "role-" + r);
+      }
+
+      // Licence : remplit les champs vides
+      if (data.licence && $("licenseCode") && !$("licenseCode").value) {
+        $("licenseCode").value = data.licence;
+        if (data.licenseDate) {
+          $("licenseDate").value = new Date(data.licenseDate).toLocaleString();
+          $("licenseDate").dataset.iso = data.licenseDate;
+        }
+        if (data.licenseDuration !== undefined) ddSet("licenseDuration", data.licenseDuration);
+        if (data.licenseExpiry) {
+          $("licenseExpiry").value = new Date(data.licenseExpiry).toLocaleString();
+          $("licenseExpiry").dataset.iso = data.licenseExpiry;
+        } else if (data.licenseDuration === 0) {
+          $("licenseExpiry").value = "Illimitée";
+        }
+      }
+
+      if (data.licenseExpiry) checkLicenseStatus(data.licenseExpiry);
+      else if (data.licence && data.licenseDuration === 0) checkLicenseStatus("");
+    })
+    .catch((err) => console.error("Status Error:", err));
+}
+
+// =====================================================
+// COMPTEURS PAR MODULE
+// =====================================================
+const ROLES = {
+  master: { icon: "bi-star-fill", cls: "master", label: "Master" },
+  slave: { icon: "bi-cpu-fill", cls: "slave", label: "Slave" },
+};
+
+function resetModule(mac) {
+  if (!mac) return showToast("Adresse MAC manquante", "error");
+  if (!confirm(`Réinitialiser le compteur du module (${mac}) ?`)) return;
+
+  fetch("/api/module/reset", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify(payload)
+    body: JSON.stringify({ mac }),
   })
-    .then(res => res.json())
-    .then(data => {
-      if (data.status === "ok") {
-        showToast("Seuil mis à jour : " + val + " cm", "success");
-        window.moduleThresholds[target] = val;
+    .then((r) => r.json())
+    .then((result) => {
+      if (result.status === "ok") {
+        showToast("Compteur réinitialisé", "success");
+        updateModulesCount(true);
+      } else {
+        showToast(result.error || "Erreur de réinitialisation", "error");
       }
-      else showToast(data.error || "Erreur serveur", "error");
     })
     .catch(() => showToast("Erreur de connexion", "error"));
 }
 
-// ================= DEVICE STATUS =================
-function updateDeviceStatus() {
-  fetch("/api/status")
-    .then(res => res.json())
-    .then(data => {
-      if ((!websocket || websocket.readyState !== WebSocket.OPEN) && document.getElementById("passageCount")) {
-        const total = normalizeCount(data.total);
-        document.getElementById("passageCount").innerText = total === null ? 0 : total;
-      }
+function formatModule(mac) {
+  if (!mac) return showToast("Adresse MAC manquante", "error");
+  if (!confirm(`Attention : formater et réinitialiser d'usine le module (${mac}) ? Toutes les configurations seront perdues.`)) return;
 
-      if (document.getElementById("deviceMAC"))
-        document.getElementById("deviceMAC").innerText = data.mac || "Inconnu";
-      if (data.mac) window.deviceMAC = data.mac;
-      if (document.getElementById("deviceRole"))
-        document.getElementById("deviceRole").innerText = (data.moduleId ? `${data.moduleId} (${data.role || "neutral"})` : (data.role || "neutral")).toUpperCase();
-      if (document.getElementById("deviceMode")) {
-        if (data.role === "slave") {
-          document.getElementById("deviceMode").innerText = data.connected ? "Connecté au Master AP" : "Déconnecté du Master AP";
-        } else {
-          document.getElementById("deviceMode").innerText = data.connected ? "En ligne (STA + AP)" : "Hors ligne (AP)";
-        }
-      }
-
-      let dashMode = document.getElementById("dashMode");
-      if (dashMode) {
-        if (data.role === "slave") {
-          dashMode.innerText = data.connected ? "Connecté au Master AP" : "Déconnecté du Master AP";
-        } else {
-          dashMode.innerText = data.connected ? "En ligne" : "Hors ligne";
-        }
-        let icon = dashMode.parentElement.nextElementSibling?.querySelector("i");
-        if (icon) {
-          if (data.connected) { icon.className = "bi bi-wifi"; icon.parentElement.className = "card-icon green"; }
-          else { icon.className = "bi bi-wifi-off"; icon.parentElement.className = "card-icon red"; }
-        }
-      }
-
-      // Mettre à jour la bannière de rôle dynamiquement
-      const roleBannerText = document.getElementById("roleBannerText");
-      const roleBanner     = document.getElementById("roleBanner");
-      if (roleBannerText && data.role) {
-        const isConnected = data.connected;
-        const roleLabels = { 
-          master: "Ce module est le MASTER", 
-          slave: isConnected ? "Ce module est un SLAVE (Connecté au Master)" : "Ce module est un SLAVE (Déconnecté du Master)" 
-        };
-        roleBannerText.textContent = (data.moduleId ? `${data.moduleId} — ` : "") + (data.role.toLowerCase() === "slave" ? (isConnected ? "🔵 " : "🔴 ") : "🟢 ") + (roleLabels[data.role.toLowerCase()] || data.role.toUpperCase());
-        if (roleBanner) {
-          if (data.role.toLowerCase() === "slave" && !isConnected) {
-            roleBanner.style.backgroundColor = "rgba(239, 68, 68, 0.15)";
-            roleBanner.style.border = "1px solid rgba(239, 68, 68, 0.3)";
-            roleBanner.style.color = "#f87171";
-          } else {
-            roleBanner.removeAttribute("style");
-            roleBanner.className = "role-banner role-" + data.role.toLowerCase();
-          }
-        }
-      }
-
-      // Remplir les champs de licence s'ils sont vides ou s'ils changent (et qu'on n'est pas en train d'éditer)
-      if (data.licence && document.getElementById("licenseCode") && !document.getElementById("licenseCode").value) {
-        document.getElementById("licenseCode").value = data.licence;
-        if (data.licenseDate) {
-          const dateInput = document.getElementById("licenseDate");
-          const d = new Date(data.licenseDate);
-          dateInput.value = d.toLocaleString();
-          dateInput.dataset.iso = data.licenseDate;
-        }
-        if (data.licenseDuration !== undefined) {
-          document.getElementById("licenseDuration").value = data.licenseDuration;
-        }
-        if (data.licenseExpiry) {
-          const expiryInput = document.getElementById("licenseExpiry");
-          const exp = new Date(data.licenseExpiry);
-          expiryInput.value = exp.toLocaleString();
-          expiryInput.dataset.iso = data.licenseExpiry;
-        } else if (data.licenseDuration === 0) {
-          document.getElementById("licenseExpiry").value = "Illimitée";
-        }
-      }
-
-      if (data.licenseExpiry) {
-        checkLicenseStatus(data.licenseExpiry);
-      } else if (data.licence && data.licenseDuration === 0) {
-        checkLicenseStatus("");
+  fetch("/api/module/format", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ mac }),
+  })
+    .then((r) => r.json())
+    .then((result) => {
+      if (result.status === "ok") {
+        showToast("Module formaté et redémarré", "success");
+        updateModulesCount(true);
+      } else {
+        showToast(result.error || "Erreur lors du formatage", "error");
       }
     })
-    .catch(err => console.error("Status Error:", err));
+    .catch(() => showToast("Erreur de connexion", "error"));
 }
 
-// ================= MODULES COUNT DASHBOARD =================
-const roleColors = {
-  master: { bg: "linear-gradient(135deg, #1e40af 0%, #3b82f6 100%)", icon: "bi-star-fill",  badge: "badge-master" },
-  slave:  { bg: "linear-gradient(135deg, #065f46 0%, #10b981 100%)", icon: "bi-cpu-fill",   badge: "badge-slave"  },
-};
+let lastModulesSignature = "";
 
-function updateModulesCount() {
+function updateModulesCount(force) {
   fetch("/api/modules_count")
-    .then(res => res.json())
-    .then(data => {
-      const grid  = document.getElementById("moduleCountsGrid");
-      const label = document.getElementById("moduleCountLabel");
+    .then((res) => res.json())
+    .then((data) => {
+      const grid = $("moduleCountsGrid");
       if (!grid) return;
 
       const modules = data.modules || [];
       const normalizedTotal = normalizeCount(data.total);
-      const total   = normalizedTotal === null ? 0 : normalizedTotal;
+      const total = normalizedTotal === null ? 0 : normalizedTotal;
 
-      // Track module thresholds globally
-      window.moduleThresholds = window.moduleThresholds || {};
-      const select = document.getElementById("seuilModuleSelect");
-      const currentSelected = select ? select.value : "local";
-      const seuilModuleGroup = document.getElementById("seuilModuleGroup");
-
-      if (select) {
-        select.innerHTML = '<option value="local">Ce module (Master)</option>';
+      // On ne redessine que si les données ont changé (garde les boutons stables)
+      const signature = JSON.stringify(data);
+      if (!force && signature === lastModulesSignature) {
+        const passageEl = $("passageCount");
+        if (passageEl && (!websocket || websocket.readyState !== WebSocket.OPEN)) passageEl.innerText = total;
+        return;
       }
+      lastModulesSignature = signature;
 
-      // Check if we are running on a slave
-      // (If Master, modules[0] is Master, but we can check if there's any slave module)
+      window.moduleThresholds = window.moduleThresholds || {};
+      const seuilOptions = [{ value: "local", label: "Ce module (Master)" }];
       let hasSlaves = false;
 
-      // Mise à jour label
-      if (label) label.textContent = `${modules.length} module(s) — Total : ${total}`;
+      const label = $("moduleCountLabel");
+      if (label) label.textContent = `${modules.length} module(s), total ${total}`;
 
-      // Mise à jour ou création des cartes
       grid.innerHTML = "";
 
       modules.forEach((mod, idx) => {
-        const colors = roleColors[mod.role] || roleColors.slave;
+        const r = ROLES[mod.role] || ROLES.slave;
         const isActive = mod.active !== false;
 
-        // Store threshold
         if (mod.role === "master") {
           window.moduleThresholds["local"] = mod.seuil || 80;
         } else {
           hasSlaves = true;
           window.moduleThresholds[mod.mac] = mod.seuil || 80;
-          if (select) {
-            const opt = document.createElement("option");
-            opt.value = mod.mac;
-            opt.textContent = `${mod.moduleId || "Slave"} (${mod.mac})`;
-            select.appendChild(opt);
-          }
+          seuilOptions.push({ value: mod.mac, label: mod.moduleId || "Slave", hint: mod.mac });
         }
 
+        const mac = esc(mod.mac || "");
         const card = document.createElement("div");
         card.className = "module-count-card" + (isActive ? "" : " inactive");
-        card.id = "mc-" + (mod.mac || idx).replace(/:/g, "");
         card.innerHTML = `
-          <div class="mc-header" style="background:${colors.bg}">
-            <i class="bi ${colors.icon} mc-icon"></i>
-            <div class="mc-badge ${colors.badge}">${mod.role === "master" ? "MASTER" : "SLAVE"}</div>
-            ${!isActive ? '<div class="mc-offline"><i class="bi bi-wifi-off"></i></div>' : ""}
+          <div class="mc-header">
+            <span class="mc-icon is-${r.cls}"><i class="bi ${r.icon}"></i></span>
+            <span class="mc-badge badge-${r.cls}">${r.label}</span>
+            ${isActive ? "" : '<i class="bi bi-wifi-off mc-offline" title="Hors ligne"></i>'}
           </div>
           <div class="mc-body">
-            <div class="mc-name">${mod.moduleId || "Module " + (idx + 1)}</div>
-            <div class="mc-count" id="mc-count-${idx}">${mod.count || 0}</div>
+            <div class="mc-name">${esc(mod.moduleId || "Module " + (idx + 1))}</div>
+            <div class="mc-count">${mod.count || 0}</div>
             <div class="mc-label">passages détectés</div>
-            <div class="mc-mac"><i class="bi bi-cpu"></i> ${mod.mac || "—"}</div>
-            
-            <div style="margin-top: 10px; display: flex; align-items: center; justify-content: center;">
-              <span style="font-size: 11px; padding: 3px 8px; border-radius: 20px; display: inline-flex; align-items: center; gap: 4px; font-weight: 500; ${isActive ? 'background-color: rgba(16, 185, 129, 0.15); color: #34d399;' : 'background-color: rgba(107, 114, 128, 0.15); color: #9ca3af;'}">
-                <i class="bi ${isActive ? 'bi-wifi' : 'bi-wifi-off'}"></i>
-                ${isActive ? 'Connecté' : 'Déconnecté'}
-              </span>
-            </div>
-
-            <div class="mc-actions" style="display: flex; gap: 8px; margin-top: 15px; border-top: 1px solid rgba(255,255,255,0.08); padding-top: 12px;">
-              <button class="btn btn-sm" onclick="resetModule('${mod.mac || ''}')" style="flex: 1; padding: 6px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 4px; background: rgba(59, 130, 246, 0.12); color: #60a5fa; border: 1px solid rgba(59, 130, 246, 0.2); cursor: pointer; border-radius: 4px;">
-                <i class="bi bi-arrow-counterclockwise"></i> Reset
+            <div class="mc-mac"><i class="bi bi-cpu"></i>${mac || "—"}</div>
+            <span class="mc-status ${isActive ? "online" : "offline"}">
+              <i class="bi ${isActive ? "bi-wifi" : "bi-wifi-off"}"></i>${isActive ? "Connecté" : "Déconnecté"}
+            </span>
+            <div class="mc-actions">
+              <button type="button" class="btn btn-sm btn-soft" onclick="resetModule('${mac}')">
+                <i class="bi bi-arrow-counterclockwise"></i>Reset
               </button>
-              <button class="btn btn-sm" onclick="formatModule('${mod.mac || ''}')" style="flex: 1; padding: 6px; font-size: 11px; display: flex; align-items: center; justify-content: center; gap: 4px; background: rgba(239, 68, 68, 0.12); color: #f87171; border: 1px solid rgba(239, 68, 68, 0.2); cursor: pointer; border-radius: 4px;">
-                <i class="bi bi-trash"></i> Format
+              <button type="button" class="btn btn-sm btn-soft-danger" onclick="formatModule('${mac}')">
+                <i class="bi bi-trash"></i>Format
               </button>
             </div>
-          </div>
-        `;
+          </div>`;
         grid.appendChild(card);
       });
 
-      // Actions reset / format functions helper
-      window.resetModule = function(mac) {
-        if (!mac) { showToast("Adresse MAC manquante", "error"); return; }
-        if (!confirm(`Voulez-vous réinitialiser le compteur du module (${mac}) ?`)) return;
-        
-        fetch("/api/module/reset", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mac: mac })
-        })
-          .then(r => r.json())
-          .then(result => {
-            if (result.status === "ok") {
-              showToast("Compteur réinitialisé", "success");
-              updateModulesCount();
-            } else {
-              showToast(result.error || "Erreur de réinitialisation", "error");
-            }
-          })
-          .catch(error => showToast("Erreur de connexion", "error"));
-      };
+      const dd = Dropdown.get("seuilModuleSelect");
+      if (dd) dd.setOptions(seuilOptions);
+      const seuilGroup = $("seuilModuleGroup");
+      if (seuilGroup) seuilGroup.style.display = hasSlaves ? "block" : "none";
 
-      window.formatModule = function(mac) {
-        if (!mac) { showToast("Adresse MAC manquante", "error"); return; }
-        if (!confirm(`⚠️ ATTENTION : Voulez-vous formater et réinitialiser d'usine le module (${mac}) ? Toutes les configurations seront perdues.`)) return;
-        
-        fetch("/api/module/format", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ mac: mac })
-        })
-          .then(r => r.json())
-          .then(result => {
-            if (result.status === "ok") {
-              showToast("Module formaté et redémarré", "success");
-              updateModulesCount();
-            } else {
-              showToast(result.error || "Erreur lors du formatage", "error");
-            }
-          })
-          .catch(error => showToast("Erreur de connexion", "error"));
-      };
-
-      if (select) {
-        select.value = currentSelected;
-      }
-      if (seuilModuleGroup) {
-        seuilModuleGroup.style.display = hasSlaves ? "block" : "none";
-      }
-
-      // Carte total générale
       const totalCard = document.createElement("div");
       totalCard.className = "module-count-card total-card";
       totalCard.innerHTML = `
-        <div class="mc-header" style="background: linear-gradient(135deg, #7c3aed 0%, #a78bfa 100%)">
-          <i class="bi bi-bar-chart-fill mc-icon"></i>
-          <div class="mc-badge" style="background:rgba(255,255,255,0.2)">TOTAL</div>
+        <div class="mc-header">
+          <span class="mc-icon is-total"><i class="bi bi-bar-chart-fill"></i></span>
+          <span class="mc-badge">Total</span>
         </div>
         <div class="mc-body">
-          <div class="mc-name">Total Général</div>
-          <div class="mc-count" style="color:#a78bfa">${total}</div>
+          <div class="mc-name">Total général</div>
+          <div class="mc-count">${total}</div>
           <div class="mc-label">tous modules confondus</div>
-          <div class="mc-mac"><i class="bi bi-people-fill"></i> ${modules.length} module(s) actif(s)</div>
-        </div>
-      `;
+          <div class="mc-mac"><i class="bi bi-people-fill"></i>${modules.length} module(s)</div>
+        </div>`;
       grid.appendChild(totalCard);
 
-      // Mise à jour du compteur principal
-      const passageEl = document.getElementById("passageCount");
-      if (passageEl && (!websocket || websocket.readyState !== WebSocket.OPEN)) {
-        passageEl.innerText = total;
-      }
+      const passageEl = $("passageCount");
+      if (passageEl && (!websocket || websocket.readyState !== WebSocket.OPEN)) passageEl.innerText = total;
     })
-    .catch(err => console.error("Erreur modules_count :", err));
+    .catch((err) => console.error("Erreur modules_count :", err));
 }
 
-// ================= INIT =================
+// =====================================================
+// INITIALISATION
+// =====================================================
 document.addEventListener("DOMContentLoaded", () => {
+  Dropdown.init();
   initWebSocket();
   loadModuleConfig();
 
   fetch("/api/wifi")
-    .then(res => res.json())
-    .then(wifiData => {
-      let modeNetSelect = document.getElementById("modeNet");
-      if (modeNetSelect) {
-        modeNetSelect.value = (wifiData.ssid && wifiData.ssid.trim() !== "") ? "online" : "ap";
-      }
+    .then((res) => res.json())
+    .then((wifiData) => {
+      ddSet("modeNet", wifiData.ssid && wifiData.ssid.trim() !== "" ? "online" : "ap");
       changeNetworkMode();
     })
     .catch(() => changeNetworkMode());
 
   changeFirmwareMode();
-  animatePageTitle("Dashboard");
   loadSensorConfig();
 
-  // Status périodique (5s)
   updateDeviceStatus();
-  setInterval(updateDeviceStatus, 500);
+  setInterval(updateDeviceStatus, 1000);
 
-  // Compteurs modules (3s pour plus de réactivité)
   updateModulesCount();
-  setInterval(updateModulesCount, 300);
+  setInterval(updateModulesCount, 1500);
 });
